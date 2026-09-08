@@ -73,8 +73,7 @@ export function SurfaceLayer({ surface, stage, globals, mic }: Props) {
   }, []);
 
   const px = surface.corners.map((c) => ({ x: c.x * stage.w, y: c.y * stage.h }));
-  const audioBoost =
-    globals.audioReactive && mic?.active ? 1 - 0.25 + mic.levels.level * 0.25 : 1;
+
 
   return (
     <div
