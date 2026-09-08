@@ -83,8 +83,9 @@ function Studio() {
   useEffect(() => {
     const el = stageRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(([entry]) => {
-      const r = entry.contentRect;
+    const ro = new ResizeObserver((entries) => {
+      const r = entries[0]?.contentRect;
+      if (!r) return;
       setStage({ w: r.width, h: r.height });
     });
     ro.observe(el);
@@ -155,7 +156,7 @@ function Studio() {
     });
     if (added.length) {
       setMedia((prev) => [...prev, ...added]);
-      if (selected) patch(selected.id, { source: `media:${added[0].id}` });
+      if (selected && added[0]) patch(selected.id, { source: `media:${added[0].id}` });
     }
   };
 

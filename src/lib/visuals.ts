@@ -65,7 +65,7 @@ export const visuals: Visual[] = [
         const p = ((i / rings + t * 0.25) % 1) * (1 + audio.level * 0.4);
         ctx.strokeStyle = col(hue + i * 12, 40 + p * 40, 0.9);
         ctx.beginPath();
-        ctx.arc(cx, cy, p * max, 0, Math.PI * 2);
+        ctx.arc(cx, cy, Math.max(0.5, p * max), 0, Math.PI * 2);
         ctx.stroke();
       }
     },
@@ -212,7 +212,7 @@ export const visuals: Visual[] = [
         g.addColorStop(1, col(hue + i * 25, 40, 0));
         ctx.fillStyle = g;
         ctx.beginPath();
-        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.arc(x, y, Math.max(0.5, r), 0, Math.PI * 2);
         ctx.fill();
       }
       ctx.globalCompositeOperation = "source-over";
@@ -271,7 +271,7 @@ export const visuals: Visual[] = [
           const rad = (Math.min(w / cols, h / rows) / 2) * Math.min(1, v);
           ctx.fillStyle = col(hue + (c + r) * 12, 60);
           ctx.beginPath();
-          ctx.arc((c + 0.5) * (w / cols), (r + 0.5) * (h / rows), rad, 0, Math.PI * 2);
+          ctx.arc((c + 0.5) * (w / cols), (r + 0.5) * (h / rows), Math.max(0, rad), 0, Math.PI * 2);
           ctx.fill();
         }
       }
