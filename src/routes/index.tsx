@@ -250,7 +250,7 @@ function Studio() {
               min={0.1}
               max={1.5}
               step={0.01}
-              onValueChange={([v]) => setGlobals((g) => ({ ...g, brightness: v }))}
+              onValueChange={([v = 0]) => setGlobals((g) => ({ ...g, brightness: v }))}
             />
           </Labeled>
         </section>
@@ -264,7 +264,7 @@ function Studio() {
               min={0}
               max={3}
               step={0.01}
-              onValueChange={([v]) => setGlobals((g) => ({ ...g, speed: v }))}
+              onValueChange={([v = 0]) => setGlobals((g) => ({ ...g, speed: v }))}
             />
           </Labeled>
           <Labeled label="Intensity" value={`${Math.round(globals.intensity * 100)}%`}>
@@ -273,7 +273,7 @@ function Studio() {
               min={0}
               max={1}
               step={0.01}
-              onValueChange={([v]) => setGlobals((g) => ({ ...g, intensity: v }))}
+              onValueChange={([v = 0]) => setGlobals((g) => ({ ...g, intensity: v }))}
             />
           </Labeled>
           <Labeled label="Colour" value={`${Math.round(globals.hue)}°`}>
@@ -282,7 +282,7 @@ function Studio() {
               min={0}
               max={360}
               step={1}
-              onValueChange={([v]) => setGlobals((g) => ({ ...g, hue: v }))}
+              onValueChange={([v = 0]) => setGlobals((g) => ({ ...g, hue: v }))}
             />
           </Labeled>
         </section>
@@ -348,7 +348,7 @@ function Studio() {
                         min={0}
                         max={1}
                         step={0.01}
-                        onValueChange={([v]) => patch(s.id, { opacity: v })}
+                        onValueChange={([v = 0]) => patch(s.id, { opacity: v })}
                       />
                     </Labeled>
                     <Labeled label="Colour shift" value={`${s.hueShift}°`}>
@@ -357,7 +357,7 @@ function Studio() {
                         min={0}
                         max={360}
                         step={1}
-                        onValueChange={([v]) => patch(s.id, { hueShift: v })}
+                        onValueChange={([v = 0]) => patch(s.id, { hueShift: v })}
                       />
                     </Labeled>
                     <Button
