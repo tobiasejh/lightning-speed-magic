@@ -115,7 +115,9 @@ export function ProjectsMenu(p: Props) {
             {p.projects.length > 0 && (
               <>
                 <DropdownMenuSeparator />
-                <DropdownMenuLabel className="text-xs text-muted-foreground">Open</DropdownMenuLabel>
+                <DropdownMenuLabel className="text-xs text-muted-foreground">
+                  Open
+                </DropdownMenuLabel>
                 {p.projects.map((pr) => (
                   <DropdownMenuItem key={pr.id} onClick={() => p.onOpen(pr.id)}>
                     <span className="truncate">{pr.name}</span>
@@ -130,7 +132,9 @@ export function ProjectsMenu(p: Props) {
         </DropdownMenu>
       </div>
       <p className="text-[11px] text-muted-foreground">
-        {p.savedAt ? `Saved ${new Date(p.savedAt).toLocaleTimeString()} · autosaves on this device` : "Not saved yet · autosaves on this device"}
+        {p.savedAt
+          ? `Saved ${new Date(p.savedAt).toLocaleTimeString()} · autosaves on this device`
+          : "Not saved yet · autosaves on this device"}
       </p>
     </div>
   );

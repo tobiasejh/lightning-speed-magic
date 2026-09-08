@@ -27,7 +27,6 @@ function solve(A: number[][], b: number[]): number[] | null {
   return M.map((row, i) => row[n]! / row[i]!);
 }
 
-
 /**
  * CSS matrix3d that maps the rectangle (0,0)-(w,h) onto four destination
  * points (top-left, top-right, bottom-right, bottom-left).
@@ -53,7 +52,16 @@ export function quadMatrix(w: number, h: number, dst: Pt[]): string {
   }
   const s = solve(A, b);
   if (!s) return identity;
-  const [a, b1, c, d, e, f, g, hh] = s as [number, number, number, number, number, number, number, number];
+  const [a, b1, c, d, e, f, g, hh] = s as [
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+  ];
   const m: number[] = [a, d, 0, g, b1, e, 0, hh, 0, 0, 1, 0, c, f, 0, 1];
   if (m.some((n) => !Number.isFinite(n))) return identity;
   return `matrix3d(${m.map((n) => (Math.abs(n) < 1e-8 ? 0 : Number(n.toFixed(6)))).join(",")})`;

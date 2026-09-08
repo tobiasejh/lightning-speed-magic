@@ -97,7 +97,9 @@ const newSurface = (n: number, source: string): Surface => ({
 });
 
 /** Fill in fields older saved surfaces may lack. */
-const upgradeSurface = (s: Partial<Surface> & Pick<Surface, "id" | "corners" | "source">): Surface => ({
+const upgradeSurface = (
+  s: Partial<Surface> & Pick<Surface, "id" | "corners" | "source">,
+): Surface => ({
   ...newSurface(1, s.source),
   ...s,
 });
@@ -209,7 +211,9 @@ function Studio() {
     const refresh = () =>
       navigator.mediaDevices
         .enumerateDevices()
-        .then((d) => setDevices(d.filter((x) => x.kind === "audiooutput" && x.deviceId !== "default")))
+        .then((d) =>
+          setDevices(d.filter((x) => x.kind === "audiooutput" && x.deviceId !== "default")),
+        )
         .catch(() => undefined);
     void refresh();
     navigator.mediaDevices.addEventListener("devicechange", refresh);
@@ -294,18 +298,15 @@ function Studio() {
     [projectId, projectName, surfaces, globals, media, sounds, room, testPattern],
   );
 
-  const persist = useCallback(
-    async (p: Project) => {
-      try {
-        await saveProject(p, blobs.current);
-        setSavedAt(p.updatedAt);
-        setProjects(await listProjects());
-      } catch {
-        /* storage unavailable */
-      }
-    },
-    [],
-  );
+  const persist = useCallback(async (p: Project) => {
+    try {
+      await saveProject(p, blobs.current);
+      setSavedAt(p.updatedAt);
+      setProjects(await listProjects());
+    } catch {
+      /* storage unavailable */
+    }
+  }, []);
 
   // autosave
   useEffect(() => {
@@ -348,7 +349,10 @@ function Studio() {
 
   function sendMedia(ch: BroadcastChannel, items: MediaItem[]) {
     const payload = items
-      .map((m) => ({ meta: { id: m.id, name: m.name, kind: m.kind }, file: blobs.current.get(m.id) }))
+      .map((m) => ({
+        meta: { id: m.id, name: m.name, kind: m.kind },
+        file: blobs.current.get(m.id),
+      }))
       .filter((x): x is { meta: Omit<MediaItem, "url">; file: Blob } => !!x.file);
     if (payload.length) ch.postMessage({ type: "media", items: payload } satisfies SyncMessage);
   }
@@ -629,7 +633,9 @@ function Studio() {
             }}
             onImport={(file) => {
               void importProject(file)
-                .then(({ project, blobs: b }) => applyProject(project, b).then(() => persist(project)))
+                .then(({ project, blobs: b }) =>
+                  applyProject(project, b).then(() => persist(project)),
+                )
                 .catch(() => window.alert("That file is not a Prism project."));
             }}
           />
@@ -784,7 +790,9 @@ function Studio() {
                         size="sm"
                         variant={s.fit === "cover" ? "default" : "secondary"}
                         className="flex-1"
-                        onClick={() => patch(s.id, { fit: s.fit === "cover" ? "stretch" : "cover" })}
+                        onClick={() =>
+                          patch(s.id, { fit: s.fit === "cover" ? "stretch" : "cover" })
+                        }
                       >
                         {s.fit === "cover" ? "Fill" : "Stretch"}
                       </Button>
@@ -816,7 +824,10 @@ function Studio() {
                     </div>
                     <div className="flex items-center gap-2 text-xs">
                       <span className="shrink-0 text-muted-foreground">Reacts to</span>
-                      <Select value={s.audioSource} onValueChange={(v) => patch(s.id, { audioSource: v })}>
+                      <Select
+                        value={s.audioSource}
+                        onValueChange={(v) => patch(s.id, { audioSource: v })}
+                      >
                         <SelectTrigger className="h-8 flex-1" aria-label="Audio source">
                           <SelectValue />
                         </SelectTrigger>
@@ -873,7 +884,9 @@ function Studio() {
                       return (
                         <button
                           key={v.id}
-                          onClick={() => selected && patch(selected.id, { source: `visual:${v.id}` })}
+                          onClick={() =>
+                            selected && patch(selected.id, { source: `visual:${v.id}` })
+                          }
                           className={`rounded-md border px-2 py-2 text-xs transition-colors ${
                             active
                               ? "border-primary bg-primary/15 text-foreground"
@@ -995,7 +1008,11 @@ function Studio() {
               surface={s}
               index={i}
               stage={stage}
-              globals={roomView && !fullscreen ? { ...globals, brightness: globals.brightness * 0.35 } : globals}
+              globals={
+                roomView && !fullscreen
+                  ? { ...globals, brightness: globals.brightness * 0.35 }
+                  : globals
+              }
               testPattern={testPattern}
               levels={levels}
             />
@@ -1010,7 +1027,9 @@ function Studio() {
               onMoveSound={(id, position) => patchSound(id, { position })}
               onMoveListener={(listener) => patchRoom({ listener })}
               onMoveSpeaker={(id, position) =>
-                patchRoom({ speakers: room.speakers.map((sp) => (sp.id === id ? { ...sp, position } : sp)) })
+                patchRoom({
+                  speakers: room.speakers.map((sp) => (sp.id === id ? { ...sp, position } : sp)),
+                })
               }
             />
           )}
@@ -1059,7 +1078,15 @@ function SectionTitle({ children }: { children: ReactNode }) {
   );
 }
 
-function Labeled({ label, value, children }: { label: string; value: string; children: ReactNode }) {
+function Labeled({
+  label,
+  value,
+  children,
+}: {
+  label: string;
+  value: string;
+  children: ReactNode;
+}) {
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between text-xs">

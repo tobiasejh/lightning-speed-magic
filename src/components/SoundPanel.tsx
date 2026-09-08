@@ -1,4 +1,15 @@
-import { Headphones, Pause, Play, Plus, Repeat, Speaker, Square, Trash2, Volume2, VolumeX } from "lucide-react";
+import {
+  Headphones,
+  Pause,
+  Play,
+  Plus,
+  Repeat,
+  Speaker,
+  Square,
+  Trash2,
+  Volume2,
+  VolumeX,
+} from "lucide-react";
 import { useRef } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -67,8 +78,8 @@ export function SoundPanel(p: Props) {
 
       {p.sounds.length === 0 ? (
         <p className="text-xs text-muted-foreground">
-          No sounds yet. Add music, mono clips or ambisonic (4/9/16‑channel) files. They stay on this
-          device.
+          No sounds yet. Add music, mono clips or ambisonic (4/9/16‑channel) files. They stay on
+          this device.
         </p>
       ) : (
         <ul className="space-y-2">
@@ -239,7 +250,8 @@ export function SoundPanel(p: Props) {
               </div>
             )}
             <p className="text-[11px] text-muted-foreground">
-              Your audio device reports {p.maxChannels} output channel{p.maxChannels === 1 ? "" : "s"}.
+              Your audio device reports {p.maxChannels} output channel
+              {p.maxChannels === 1 ? "" : "s"}.
               {p.room.speakers.length > p.maxChannels
                 ? ` Speakers beyond ${p.maxChannels} are folded down onto the available channels.`
                 : ""}
@@ -329,7 +341,15 @@ function Tog({
   );
 }
 
-function Row({ label, value, children }: { label: string; value: string; children: React.ReactNode }) {
+function Row({
+  label,
+  value,
+  children,
+}: {
+  label: string;
+  value: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between text-xs">

@@ -152,4 +152,12 @@ export const defaultGlobals = (): Globals => ({
   blackout: false,
 });
 
-export const SOUND_COLORS = ["#ff5f7e", "#ffb347", "#ffe95f", "#6cf28a", "#4dd8ff", "#8f7bff", "#ff7bf2"];
+export const SOUND_COLORS = [
+  "#ff5f7e",
+  "#ffb347",
+  "#ffe95f",
+  "#6cf28a",
+  "#4dd8ff",
+  "#8f7bff",
+  "#ff7bf2",
+];

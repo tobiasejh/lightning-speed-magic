@@ -20,7 +20,10 @@ export function RoomView(p: Props) {
   const size = Math.min(w, h) * 0.9;
   const ox = (w - size) / 2;
   const oy = (h - size) / 2;
-  const toPx = (v: Vec3) => ({ left: ox + ((v.x + 1) / 2) * size, top: oy + ((v.y + 1) / 2) * size });
+  const toPx = (v: Vec3) => ({
+    left: ox + ((v.x + 1) / 2) * size,
+    top: oy + ((v.y + 1) / 2) * size,
+  });
 
   const drag =
     (cb: (pos: { x: number; y: number }) => void) => (e: ReactPointerEvent<HTMLElement>) => {
@@ -43,7 +46,8 @@ export function RoomView(p: Props) {
       target.addEventListener("pointerup", up);
     };
 
-  const metres = (v: Vec3) => `${(Math.hypot(v.x - p.room.listener.x, v.y - p.room.listener.y) * (p.room.size / 2)).toFixed(1)} m`;
+  const metres = (v: Vec3) =>
+    `${(Math.hypot(v.x - p.room.listener.x, v.y - p.room.listener.y) * (p.room.size / 2)).toFixed(1)} m`;
 
   return (
     <div className="absolute inset-0 select-none">

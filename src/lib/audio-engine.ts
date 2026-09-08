@@ -111,7 +111,8 @@ export class SpatialEngine {
 
   levels(source: string): AudioLevels {
     if (source === "master") return this.masterLevels;
-    if (source.startsWith("sound:")) return this.sources.get(source.slice(6))?.levels ?? silentLevels;
+    if (source.startsWith("sound:"))
+      return this.sources.get(source.slice(6))?.levels ?? silentLevels;
     return silentLevels;
   }
 
@@ -142,7 +143,12 @@ export class SpatialEngine {
       this.decoderKey = key;
       this.buildDecoder();
     }
-    if (force || prev.order !== room.order || prev.listener !== room.listener || prev.size !== room.size) {
+    if (
+      force ||
+      prev.order !== room.order ||
+      prev.listener !== room.listener ||
+      prev.size !== room.size
+    ) {
       for (const s of this.sources.values()) this.updateSource(s);
     }
   }
@@ -246,7 +252,12 @@ export class SpatialEngine {
         ...item,
         channels: probe.numberOfChannels,
         duration: probe.duration,
-        kind: probe.numberOfChannels >= 4 ? "ambisonic" : probe.numberOfChannels === 1 ? "mono" : "stereo",
+        kind:
+          probe.numberOfChannels >= 4
+            ? "ambisonic"
+            : probe.numberOfChannels === 1
+              ? "mono"
+              : "stereo",
       };
     } catch {
       /* browser cannot decode fully; still try element playback */
@@ -360,7 +371,11 @@ export class SpatialEngine {
     const audible = !item.mute && (!solo || item.solo);
     const vol = audible ? item.gain : 0;
     const { listener, size, order } = this.room;
-    const rel = { x: item.position.x - listener.x, y: item.position.y - listener.y, z: item.position.z - listener.z };
+    const rel = {
+      x: item.position.x - listener.x,
+      y: item.position.y - listener.y,
+      z: item.position.z - listener.z,
+    };
     const metres = Math.hypot(rel.x, rel.y, rel.z) * (size / 2);
     const dist = 1 / Math.max(1, metres);
     const t = this.ctx.currentTime + 0.03;
@@ -460,7 +475,11 @@ export class SpatialEngine {
     if (!g) return 0;
     const dur = g.item.duration || g.el?.duration || 0;
     if (!dur) return 0;
-    const pos = g.el ? g.el.currentTime : g.bufSrc ? (this.ctx.currentTime - g.startedAt) % dur : g.offset;
+    const pos = g.el
+      ? g.el.currentTime
+      : g.bufSrc
+        ? (this.ctx.currentTime - g.startedAt) % dur
+        : g.offset;
     return Math.min(1, pos / dur);
   }
 

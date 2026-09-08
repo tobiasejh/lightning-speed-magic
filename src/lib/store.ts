@@ -5,7 +5,10 @@ import type { Project } from "./types";
 
 interface PrismDB extends DBSchema {
   projects: { key: string; value: Project; indexes: { updatedAt: number } };
-  blobs: { key: string; value: { id: string; projectId: string; blob: Blob; name: string; type: string } };
+  blobs: {
+    key: string;
+    value: { id: string; projectId: string; blob: Blob; name: string; type: string };
+  };
 }
 
 let dbp: Promise<IDBPDatabase<PrismDB>> | null = null;
@@ -45,7 +48,9 @@ export async function saveProject(project: Project, blobs: BlobMap) {
   localStorage.setItem(LAST_KEY, project.id);
 }
 
-export async function loadProject(id: string): Promise<{ project: Project; blobs: BlobMap } | null> {
+export async function loadProject(
+  id: string,
+): Promise<{ project: Project; blobs: BlobMap } | null> {
   const d = await db();
   const project = await d.get("projects", id);
   if (!project) return null;

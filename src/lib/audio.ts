@@ -26,7 +26,6 @@ export function bandLevels(d: Uint8Array, prev: AudioLevels): AudioLevels {
   };
 }
 
-
 /** Microphone analyser that keeps a smoothed set of band levels up to date. */
 export class MicAnalyser {
   levels: AudioLevels = { ...silentLevels };
