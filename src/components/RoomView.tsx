@@ -60,7 +60,7 @@ export function RoomView(p: Props) {
           width: size,
           height: size,
           backgroundImage:
-            "linear-gradient(to right, hsl(var(--border) / 0.35) 1px, transparent 1px), linear-gradient(to bottom, hsl(var(--border) / 0.35) 1px, transparent 1px)",
+            "linear-gradient(to right, var(--border) 1px, transparent 1px), linear-gradient(to bottom, var(--border) 1px, transparent 1px)",
           backgroundSize: `${size / 8}px ${size / 8}px`,
         }}
       >

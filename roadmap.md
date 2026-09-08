@@ -10,11 +10,12 @@
 - [x] Verify in browser
 
 ## v2
-- [ ] Sound library + playback + master transport
-- [ ] Spatial ambisonic engine (order 1-3, binaural/speakers)
-- [ ] Room view with draggable sound/listener/speaker icons
-- [ ] Per-surface audio source, fit/flip/rotate
-- [ ] Corner snapping
-- [ ] Test patterns
-- [ ] /output window sync
-- [ ] Projects: IndexedDB save/open, autosave, export/import
+- [x] Sound library + playback + master transport
+- [x] Spatial ambisonic engine (order 1-3, binaural/speakers)
+- [x] Room view with draggable sound/listener/speaker icons
+- [x] Per-surface audio source, fit/flip/rotate
+- [x] Corner snapping
+- [x] Test patterns
+- [x] /output window sync
+- [x] Projects: IndexedDB save/open, autosave, export/import
+- [x] Verified in browser
