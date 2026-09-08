@@ -6,5 +6,5 @@
 - [x] Microphone-reactive visuals
 - [x] Fullscreen projector output + blackout
 - [x] Add own assets (photos/videos) in-app and map them
-- [ ] Dark stage theme tokens
-- [ ] Verify in browser
+- [x] Dark stage theme tokens
+- [x] Verify in browser
