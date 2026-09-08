@@ -279,4 +279,4 @@ export const visuals: Visual[] = [
   },
 ];
 
-export const visualById = (id: string) => visuals.find((v) => v.id === id) ?? visuals[0];
+export const visualById = (id: string): Visual => visuals.find((v) => v.id === id) ?? visuals[0]!;

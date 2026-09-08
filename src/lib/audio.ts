@@ -8,7 +8,7 @@ export class MicAnalyser {
   private ctx: AudioContext | null = null;
   private stream: MediaStream | null = null;
   private analyser: AnalyserNode | null = null;
-  private data: Uint8Array | null = null;
+  private data: Uint8Array<ArrayBuffer> | null = null;
   private raf = 0;
 
   get active() {
