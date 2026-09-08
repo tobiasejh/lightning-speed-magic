@@ -233,8 +233,7 @@ export class SpatialEngine {
         p.connect(this.master);
         this.decoderNodes.push(p);
       } else if (merger) {
-        const outCh = merger.numberOfInputs;
-        merger && sum.connect(merger, 0, k % outCh); // fold extra speakers down
+        sum.connect(merger, 0, k % merger.numberOfInputs); // fold extra speakers down
       }
     });
   }
