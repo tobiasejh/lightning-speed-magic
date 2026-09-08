@@ -87,7 +87,7 @@ export function SurfaceLayer({ surface, stage, globals, mic }: Props) {
         transformOrigin: "0 0",
         transform: quadMatrix(stage.w || 1, stage.h || 1, px),
         opacity: globals.blackout || !surface.visible ? 0 : surface.opacity,
-        filter: `brightness(${globals.brightness * audioBoost})`,
+        filter: `brightness(${globals.brightness})`,
         pointerEvents: "none",
         transition: "opacity 120ms linear",
       }}
