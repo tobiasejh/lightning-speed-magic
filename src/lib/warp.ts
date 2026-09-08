@@ -27,34 +27,6 @@ function solve(A: number[][], b: number[]): number[] | null {
   return M.map((row, i) => row[n]! / row[i]!);
 }
 
-/** Solve A·x = b for an n×n system with partial pivoting. */
-function solve(A: number[][], b: number[]): number[] | null {
-  const n = b.length;
-  const M: number[][] = A.map((row, i) => [...row, b[i] as number]);
-  for (let col = 0; col < n; col++) {
-    let piv = col;
-    for (let r = col + 1; r < n; r++) {
-      const rowR = M[r] as number[];
-      const rowP = M[piv] as number[];
-      if (Math.abs(rowR[col] as number) > Math.abs(rowP[col] as number)) piv = r;
-    }
-    if (Math.abs((M[piv] as number[])[col] as number) < 1e-10) return null;
-    const tmp = M[col] as number[];
-    M[col] = M[piv] as number[];
-    M[piv] = tmp;
-    const pivotRow = M[col] as number[];
-    const pivotVal = pivotRow[col] as number;
-    for (let r = 0; r < n; r++) {
-      if (r === col) continue;
-      const row = M[r] as number[];
-      const f = (row[col] as number) / pivotVal;
-      for (let c = col; c <= n; c++) {
-        row[c] = (row[c] as number) - f * (pivotRow[c] as number);
-      }
-    }
-  }
-  return M.map((row, i) => (row[n] as number) / (row[i] as number));
-}
 
 /**
  * CSS matrix3d that maps the rectangle (0,0)-(w,h) onto four destination
