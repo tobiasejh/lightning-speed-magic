@@ -30,7 +30,7 @@ export class MicAnalyser {
     this.ctx = ctx;
     this.stream = stream;
     this.analyser = analyser;
-    this.data = new Uint8Array(analyser.frequencyBinCount);
+    this.data = new Uint8Array(new ArrayBuffer(analyser.frequencyBinCount));
     const tick = () => {
       this.sample();
       this.raf = requestAnimationFrame(tick);
@@ -45,7 +45,7 @@ export class MicAnalyser {
     a.getByteFrequencyData(d);
     const band = (from: number, to: number) => {
       let sum = 0;
-      for (let i = from; i < to; i++) sum += d[i];
+      for (let i = from; i < to; i++) sum += d[i]!;
       return sum / (to - from) / 255;
     };
     const n = d.length;
