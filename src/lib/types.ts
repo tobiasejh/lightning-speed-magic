@@ -138,7 +138,7 @@ export const defaultRoom = (): RoomConfig => ({
   order: 3,
   outputMode: "headphones",
   layout: "stereo",
-  speakers: SPEAKER_LAYOUTS.stereo!.map((s) => ({ ...s })),
+  speakers: SPEAKER_LAYOUTS["stereo"]!.map((s) => ({ ...s })),
   listener: { x: 0, y: 0, z: 0 },
   masterGain: 0.9,
 });
@@ -152,4 +152,12 @@ export const defaultGlobals = (): Globals => ({
   blackout: false,
 });
 
-export const SOUND_COLORS = ["#ff5f7e", "#ffb347", "#ffe95f", "#6cf28a", "#4dd8ff", "#8f7bff", "#ff7bf2"];
+export const SOUND_COLORS = [
+  "#ff5f7e",
+  "#ffb347",
+  "#ffe95f",
+  "#6cf28a",
+  "#4dd8ff",
+  "#8f7bff",
+  "#ff7bf2",
+];

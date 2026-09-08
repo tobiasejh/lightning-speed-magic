@@ -17,7 +17,8 @@ export function snapCandidates(surfaces: Surface[], excludeId: string): Pt[] {
     }
   }
   // stage corners and midpoints
-  for (const x of [0, 0.5, 1]) for (const y of [0, 0.5, 1]) if (x !== 0.5 || y !== 0.5) pts.push({ x, y });
+  for (const x of [0, 0.5, 1])
+    for (const y of [0, 0.5, 1]) if (x !== 0.5 || y !== 0.5) pts.push({ x, y });
   return pts;
 }
 

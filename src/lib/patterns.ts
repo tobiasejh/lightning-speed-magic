@@ -56,7 +56,16 @@ export function drawPattern(
       break;
     }
     case "bars": {
-      const colors = ["#ffffff", "#ffff00", "#00ffff", "#00ff00", "#ff00ff", "#ff0000", "#0000ff", "#000000"];
+      const colors = [
+        "#ffffff",
+        "#ffff00",
+        "#00ffff",
+        "#00ff00",
+        "#ff00ff",
+        "#ff0000",
+        "#0000ff",
+        "#000000",
+      ];
       const bw = w / colors.length;
       colors.forEach((c, i) => {
         ctx.fillStyle = c;
