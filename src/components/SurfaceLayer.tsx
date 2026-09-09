@@ -76,7 +76,7 @@ export function SurfaceLayer({ surface, index, stage, globals, testPattern, leve
             // keep video playback inside its trimmed range
             if (el instanceof HTMLVideoElement && meta && (meta.trimStart || meta.trimEnd)) {
               const a = meta.trimStart ?? 0;
-              const b = meta.trimEnd ?? el.duration || 0;
+              const b = meta.trimEnd ?? (el.duration || 0);
               if (b > a && (el.currentTime > b || el.currentTime < a - 0.05)) el.currentTime = a;
             }
             const crop = meta?.crop;
