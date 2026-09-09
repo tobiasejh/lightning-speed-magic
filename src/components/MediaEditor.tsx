@@ -280,7 +280,10 @@ export function MediaEditor(p: Props) {
                   </SelectContent>
                 </Select>
                 {item.syncSoundId && (
-                  <Labelled label="Offset" value={`${Math.round((item.syncOffset ?? 0) * 1000)} ms`}>
+                  <Labelled
+                    label="Offset"
+                    value={`${Math.round((item.syncOffset ?? 0) * 1000)} ms`}
+                  >
                     <Slider
                       value={[item.syncOffset ?? 0]}
                       min={-2}

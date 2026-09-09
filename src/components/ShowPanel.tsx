@@ -33,8 +33,7 @@ type Props = {
   onOpenOutput: (id: string) => void;
 };
 
-const fmt = (s: number) =>
-  `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
 export function ShowPanel(p: Props) {
   const sorted = [...p.cues].sort((a, b) => a.start - b.start);
@@ -73,7 +72,12 @@ export function ShowPanel(p: Props) {
                 className="h-7 border-0 bg-transparent px-1 text-sm shadow-none focus-visible:ring-1"
                 aria-label="Scene name"
               />
-              <Button size="sm" variant="secondary" className="h-7" onClick={() => p.onRecall(s.id)}>
+              <Button
+                size="sm"
+                variant="secondary"
+                className="h-7"
+                onClick={() => p.onRecall(s.id)}
+              >
                 Go
               </Button>
               <Button

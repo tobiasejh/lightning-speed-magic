@@ -1327,7 +1327,9 @@ function Studio() {
                       >
                         <button
                           title={m.name}
-                          onClick={() => selected && patch(selected.id, { source: `media:${m.id}` })}
+                          onClick={() =>
+                            selected && patch(selected.id, { source: `media:${m.id}` })
+                          }
                           className="size-full"
                         >
                           {m.kind === "image" ? (
