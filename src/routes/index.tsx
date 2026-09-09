@@ -1,25 +1,28 @@
 import { createFileRoute } from "@tanstack/react-router";
+import type { RealtimeChannel } from "@supabase/supabase-js";
 import {
   Eye,
   EyeOff,
   FlipHorizontal2,
   FlipVertical2,
-  Image as ImageIcon,
   Maximize2,
   Mic,
   MicOff,
   Minimize2,
   Plus,
   RotateCw,
+  Scissors,
   Trash2,
   Upload,
   Zap,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
-import { MappingToolbar } from "@/components/MappingToolbar";
+import { MappingToolbar, type StageView } from "@/components/MappingToolbar";
+import { MediaEditor } from "@/components/MediaEditor";
 import { ProjectsMenu } from "@/components/ProjectsMenu";
 import { RoomView } from "@/components/RoomView";
+import { ShowPanel } from "@/components/ShowPanel";
 import { SoundPanel } from "@/components/SoundPanel";
 import { SurfaceLayer } from "@/components/SurfaceLayer";
 import { Button } from "@/components/ui/button";
@@ -33,6 +36,7 @@ import {
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { supabase } from "@/integrations/supabase/client";
 import { MicAnalyser, silentLevels, type AudioLevelProvider } from "@/lib/audio";
 import { SpatialEngine } from "@/lib/audio-engine";
 import { snapCandidates, snapPoint } from "@/lib/snap";
@@ -50,15 +54,21 @@ import { openChannel, type OutputSnapshot, type SyncMessage } from "@/lib/sync";
 import {
   SOUND_COLORS,
   defaultGlobals,
+  defaultOutputs,
   defaultRoom,
   mediaElements,
+  mediaMeta,
+  type Crop,
   type Globals,
   type MediaItem,
+  type OutputScreen,
   type Project,
   type RoomConfig,
+  type Scene,
   type SoundItem,
   type Surface,
   type TestPattern,
+  type TimelineCue,
 } from "@/lib/types";
 import { defaultCorners, type Pt } from "@/lib/warp";
 import { visuals } from "@/lib/visuals";
@@ -94,6 +104,7 @@ const newSurface = (n: number, source: string): Surface => ({
   flipV: false,
   rotate: 0,
   audioSource: "mic",
+  outputId: "out1",
 });
 
 /** Fill in fields older saved surfaces may lack. */
@@ -104,23 +115,57 @@ const upgradeSurface = (
   ...s,
 });
 
-function mountMedia(id: string, kind: MediaItem["kind"], blob: Blob) {
+function mountMedia(meta: Omit<MediaItem, "url">, blob: Blob) {
   const url = URL.createObjectURL(blob);
-  if (kind === "video") {
+  if (meta.kind === "video") {
     const v = document.createElement("video");
     v.src = url;
     v.loop = true;
     v.muted = true;
     v.playsInline = true;
+    if (meta.trimStart) v.currentTime = meta.trimStart;
     void v.play();
-    mediaElements.set(id, v);
+    mediaElements.set(meta.id, v);
   } else {
     const img = new Image();
     img.src = url;
-    mediaElements.set(id, img);
+    mediaElements.set(meta.id, img);
   }
+  mediaMeta.set(meta.id, meta);
   return url;
 }
+
+/** Best-effort check for an audio track in a video file. */
+function videoHasAudio(v: HTMLVideoElement) {
+  const a = v as unknown as {
+    mozHasAudio?: boolean;
+    webkitAudioDecodedByteCount?: number;
+    audioTracks?: { length: number };
+  };
+  if (a.audioTracks) return a.audioTracks.length > 0;
+  if (typeof a.mozHasAudio === "boolean") return a.mozHasAudio;
+  if (typeof a.webkitAudioDecodedByteCount === "number") return a.webkitAudioDecodedByteCount > 0;
+  return true;
+}
+
+const videoSoundId = (mediaId: string) => `vs-${mediaId}`;
+
+const newVideoSound = (m: Omit<MediaItem, "url">, i: number, playing: boolean): SoundItem => ({
+  id: videoSoundId(m.id),
+  name: `${m.name} (video)`,
+  kind: "video",
+  channels: 2,
+  position: { x: 0, y: -0.3, z: 0 },
+  gain: 1,
+  loop: true,
+  mute: false,
+  solo: false,
+  playing,
+  color: SOUND_COLORS[i % SOUND_COLORS.length]!,
+  heading: 0,
+  duration: 0,
+  mediaId: m.id,
+});
 
 function Studio() {
   const [projectId, setProjectId] = useState(() => `p${Date.now()}`);
@@ -137,13 +182,23 @@ function Studio() {
   const [globals, setGlobals] = useState<Globals>(defaultGlobals);
   const [testPattern, setTestPattern] = useState<TestPattern>("off");
 
+  const [outputs, setOutputs] = useState<OutputScreen[]>(defaultOutputs);
+  const [scenes, setScenes] = useState<Scene[]>([]);
+  const [cues, setCues] = useState<TimelineCue[]>([]);
+  const [showPlaying, setShowPlaying] = useState(false);
+  const [showTime, setShowTime] = useState(0);
+  const [activeSceneId, setActiveSceneId] = useState<string | null>(null);
+
   const [mapping, setMapping] = useState(true);
   const [snap, setSnap] = useState(true);
-  const [roomView, setRoomView] = useState(false);
+  const [view, setView] = useState<StageView>("stage");
+  const [editMediaId, setEditMediaId] = useState<string | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const [micOn, setMicOn] = useState(false);
   const [snapFlash, setSnapFlash] = useState<Pt | null>(null);
-  const [outputOpen, setOutputOpen] = useState(false);
+  const [openOutputs, setOpenOutputs] = useState<string[]>([]);
+  const [pairCode, setPairCode] = useState<string | null>(null);
+  const [remoteConnected, setRemoteConnected] = useState(false);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [deviceId, setDeviceId] = useState("default");
   const [maxChannels, setMaxChannels] = useState(2);
@@ -155,7 +210,8 @@ function Studio() {
   const stageRef = useRef<HTMLDivElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const channelRef = useRef<BroadcastChannel | null>(null);
-  const outputWin = useRef<Window | null>(null);
+  const outputWins = useRef(new Map<string, Window>());
+  const showStart = useRef(0);
   const [stage, setStage] = useState({ w: 0, h: 0 });
 
   const selected = surfaces.find((s) => s.id === selectedId) ?? surfaces[0] ?? null;
@@ -238,17 +294,28 @@ function Studio() {
       setTestPattern(project.testPattern ?? "off");
       setSurfaces(project.surfaces.map(upgradeSurface));
       setSelectedId(project.surfaces[0]?.id ?? null);
+      setOutputs(project.outputs?.length ? project.outputs : defaultOutputs());
+      setScenes(project.scenes ?? []);
+      setCues(project.timeline ?? []);
+      mediaMeta.clear();
       const items: MediaItem[] = [];
       for (const m of project.media) {
-        const blob = b.get(m.id);
+        const meta = { ...m, blobId: m.blobId || m.id };
+        const blob = b.get(meta.blobId);
         if (!blob) continue;
-        items.push({ ...m, url: mountMedia(m.id, m.kind, blob) });
+        items.push({ ...meta, url: mountMedia(meta, blob) });
       }
       setMedia(items);
+      setEditMediaId(items[0]?.id ?? null);
       const restored: SoundItem[] = [];
       if (project.sounds.length) {
         const eng = engine();
         for (const s of project.sounds) {
+          if (s.kind === "video") {
+            const el = s.mediaId ? mediaElements.get(s.mediaId) : null;
+            if (el instanceof HTMLVideoElement) restored.push(eng.addElementSound(s, el));
+            continue;
+          }
           const blob = b.get(s.id);
           if (!blob) continue;
           restored.push(await eng.addSound({ ...s, playing: false }, blob));
@@ -290,12 +357,27 @@ function Studio() {
       updatedAt: Date.now(),
       surfaces,
       globals,
-      media: media.map(({ id: mid, name: n, kind }) => ({ id: mid, name: n, kind })),
+      media: media.map(({ url: _url, ...rest }) => rest),
       sounds: sounds.map((s) => ({ ...s, playing: false })),
       room,
       testPattern,
+      outputs,
+      scenes,
+      timeline: cues,
     }),
-    [projectId, projectName, surfaces, globals, media, sounds, room, testPattern],
+    [
+      projectId,
+      projectName,
+      surfaces,
+      globals,
+      media,
+      sounds,
+      room,
+      testPattern,
+      outputs,
+      scenes,
+      cues,
+    ],
   );
 
   const persist = useCallback(async (p: Project) => {
@@ -331,18 +413,21 @@ function Studio() {
       sounds: [],
       room: defaultRoom(),
       testPattern: "off",
+      outputs: defaultOutputs(),
+      scenes: [],
+      timeline: [],
     };
     void applyProject(p, new Map());
     setSavedAt(null);
   };
 
-  // ----- output window -----
+  // ----- output windows -----
   const snapshot = useMemo<OutputSnapshot>(
     () => ({
       surfaces,
       globals,
       testPattern,
-      media: media.map(({ id, name, kind }) => ({ id, name, kind })),
+      media: media.map(({ url: _url, ...rest }) => rest),
     }),
     [surfaces, globals, testPattern, media],
   );
@@ -350,8 +435,8 @@ function Studio() {
   function sendMedia(ch: BroadcastChannel, items: MediaItem[]) {
     const payload = items
       .map((m) => ({
-        meta: { id: m.id, name: m.name, kind: m.kind },
-        file: blobs.current.get(m.id),
+        meta: { ...m, url: undefined } as unknown as Omit<MediaItem, "url">,
+        file: blobs.current.get(m.blobId),
       }))
       .filter((x): x is { meta: Omit<MediaItem, "url">; file: Blob } => !!x.file);
     if (payload.length) ch.postMessage({ type: "media", items: payload } satisfies SyncMessage);
@@ -372,7 +457,8 @@ function Studio() {
     if (!ch) return;
     ch.onmessage = (e: MessageEvent<SyncMessage>) => {
       if (e.data.type === "hello") {
-        setOutputOpen(true);
+        const id = e.data.outputId ?? "out1";
+        setOpenOutputs((prev) => (prev.includes(id) ? prev : [...prev, id]));
         sendMedia(ch, media);
         ch.postMessage({ type: "state", snapshot } satisfies SyncMessage);
       }
@@ -382,20 +468,33 @@ function Studio() {
 
   useEffect(() => {
     const t = setInterval(() => {
-      if (outputWin.current?.closed) {
-        outputWin.current = null;
-        setOutputOpen(false);
+      let changed = false;
+      for (const [id, win] of [...outputWins.current]) {
+        if (win.closed) {
+          outputWins.current.delete(id);
+          changed = true;
+        }
       }
+      if (changed) setOpenOutputs([...outputWins.current.keys()]);
     }, 1000);
     return () => clearInterval(t);
   }, []);
 
-  const openOutput = () => {
-    if (outputWin.current && !outputWin.current.closed) {
-      outputWin.current.focus();
+  const openOutput = (id: string) => {
+    const existing = outputWins.current.get(id);
+    if (existing && !existing.closed) {
+      existing.focus();
       return;
     }
-    outputWin.current = window.open("/output", "prism-output", "popup,width=960,height=540");
+    const win = window.open(
+      `/output?id=${encodeURIComponent(id)}`,
+      `prism-${id}`,
+      "popup,width=960,height=540",
+    );
+    if (win) {
+      outputWins.current.set(id, win);
+      setOpenOutputs([...outputWins.current.keys()]);
+    }
   };
 
   // ----- mutators -----
@@ -419,6 +518,25 @@ function Studio() {
       queueMicrotask(() => sounds.forEach((s) => s.id !== id && engineRef.current?.updateItem(s)));
     }
     if (next.playing) setTestPattern("off");
+    // keep a separately uploaded soundtrack lined up with its video
+    if (next.playing !== undefined) {
+      const src = sounds.find((x) => x.id === id);
+      const item = src?.mediaId ? media.find((m) => m.id === src.mediaId) : null;
+      const linkId = item?.syncSoundId;
+      if (linkId) {
+        const el = src?.mediaId ? mediaElements.get(src.mediaId) : null;
+        const at = el instanceof HTMLVideoElement ? el.currentTime : 0;
+        engineRef.current?.seek(linkId, at + (item?.syncOffset ?? 0));
+        setSounds((prev) =>
+          prev.map((s) => {
+            if (s.id !== linkId) return s;
+            const u = { ...s, playing: !!next.playing };
+            engineRef.current?.updateItem(u);
+            return u;
+          }),
+        );
+      }
+    }
   };
 
   const removeSound = (id: string) => {
@@ -508,6 +626,34 @@ function Studio() {
     else void stageRef.current?.parentElement?.requestFullscreen();
   };
 
+  /** Give a video's own audio track a row in the Sound tab. */
+  const registerVideoSound = (item: MediaItem) => {
+    const el = mediaElements.get(item.id);
+    if (!(el instanceof HTMLVideoElement)) return;
+    const eng = engine();
+    eng.resume();
+    const i = sounds.length;
+    const angle = (i / 6) * Math.PI * 2;
+    const sound: SoundItem = {
+      id: `v${item.id}`,
+      name: `${item.name} (video sound)`,
+      kind: "video",
+      channels: 2,
+      position: { x: Math.sin(angle) * 0.4, y: -Math.cos(angle) * 0.4, z: 0 },
+      gain: 1,
+      loop: true,
+      mute: false,
+      solo: false,
+      playing: true,
+      color: SOUND_COLORS[i % SOUND_COLORS.length]!,
+      heading: 0,
+      duration: el.duration || 0,
+      mediaId: item.id,
+    };
+    const added = eng.addElementSound(sound, el);
+    setSounds((prev) => (prev.some((s) => s.id === added.id) ? prev : [...prev, added]));
+  };
+
   const addMedia = (files: FileList | null) => {
     if (!files) return;
     const added: MediaItem[] = [];
@@ -516,14 +662,84 @@ function Studio() {
       if (!isVideo && !file.type.startsWith("image")) return;
       const id = `m${Date.now()}${i}`;
       blobs.current.set(id, file);
-      const url = mountMedia(id, isVideo ? "video" : "image", file);
-      added.push({ id, name: file.name, kind: isVideo ? "video" : "image", url });
+      const meta: Omit<MediaItem, "url"> = {
+        id,
+        blobId: id,
+        name: file.name.replace(/\.[^.]+$/, ""),
+        kind: isVideo ? "video" : "image",
+        hasAudio: isVideo,
+      };
+      added.push({ ...meta, url: mountMedia(meta, file) });
     });
-    if (added.length) {
-      setMedia((prev) => [...prev, ...added]);
-      if (selected && added[0]) patch(selected.id, { source: `media:${added[0].id}` });
-      if (channelRef.current) sendMedia(channelRef.current, added);
+    if (!added.length) return;
+    setMedia((prev) => [...prev, ...added]);
+    setEditMediaId(added[0]!.id);
+    if (selected && added[0]) patch(selected.id, { source: `media:${added[0].id}` });
+    if (channelRef.current) sendMedia(channelRef.current, added);
+    for (const item of added) {
+      if (item.kind !== "video") continue;
+      const el = mediaElements.get(item.id);
+      if (!(el instanceof HTMLVideoElement)) continue;
+      const check = () => {
+        const has = videoHasAudio(el);
+        setMedia((prev) => prev.map((m) => (m.id === item.id ? { ...m, hasAudio: has } : m)));
+        if (has) registerVideoSound(item);
+      };
+      if (el.readyState >= 1) setTimeout(check, 300);
+      else el.addEventListener("loadeddata", () => setTimeout(check, 300), { once: true });
     }
+  };
+
+  const patchMedia = (id: string, next: Partial<MediaItem>) => {
+    setMedia((prev) =>
+      prev.map((m) => {
+        if (m.id !== id) return m;
+        const u = { ...m, ...next };
+        const { url: _url, ...meta } = u;
+        mediaMeta.set(id, meta);
+        const el = mediaElements.get(id);
+        if (el instanceof HTMLVideoElement && next.trimStart !== undefined)
+          el.currentTime = next.trimStart;
+        return u;
+      }),
+    );
+  };
+
+  const removeMedia = (id: string) => {
+    const item = media.find((m) => m.id === id);
+    for (const s of sounds.filter((s) => s.mediaId === id)) removeSound(s.id);
+    const el = mediaElements.get(id);
+    if (el instanceof HTMLVideoElement) el.pause();
+    mediaElements.delete(id);
+    mediaMeta.delete(id);
+    if (item) URL.revokeObjectURL(item.url);
+    const rest = media.filter((m) => m.id !== id);
+    if (item && !rest.some((m) => m.blobId === item.blobId)) blobs.current.delete(item.blobId);
+    setMedia(rest);
+    setEditMediaId((cur) => (cur === id ? (rest[0]?.id ?? null) : cur));
+    setSurfaces((prev) =>
+      prev.map((s) => (s.source === `media:${id}` ? { ...s, source: "visual:plasma" } : s)),
+    );
+    channelRef.current?.postMessage({ type: "drop-media", ids: [id] } satisfies SyncMessage);
+  };
+
+  /** Save a cropped / trimmed piece of an existing item as its own clip. */
+  const saveClip = (from: MediaItem, changes: Partial<MediaItem>, name: string) => {
+    const blob = blobs.current.get(from.blobId);
+    if (!blob) return;
+    const id = `m${Date.now()}`;
+    const meta: Omit<MediaItem, "url"> = {
+      ...from,
+      ...changes,
+      id,
+      blobId: from.blobId,
+      name,
+      syncSoundId: undefined,
+    };
+    const item: MediaItem = { ...meta, url: mountMedia(meta, blob) };
+    setMedia((prev) => [...prev, item]);
+    setEditMediaId(id);
+    if (channelRef.current) sendMedia(channelRef.current, [item]);
   };
 
   const dragCorner = (index: number) => (e: React.PointerEvent<HTMLDivElement>) => {
@@ -575,6 +791,106 @@ function Studio() {
     }
     return visuals.find((v) => v.id === source.slice(7))?.name ?? "Visual";
   };
+
+  // ----- scenes, timeline and projectors -----
+  const saveScene = () => {
+    const scene: Scene = {
+      id: `sc${Date.now()}`,
+      name: `Scene ${scenes.length + 1}`,
+      surfaces: surfaces.map((s) => ({ ...s, corners: s.corners.map((c) => ({ ...c })) })),
+      globals: { ...globals },
+      testPattern,
+    };
+    setScenes((prev) => [...prev, scene]);
+    setActiveSceneId(scene.id);
+  };
+
+  const recallScene = useCallback(
+    (id: string) => {
+      const sc = scenes.find((s) => s.id === id);
+      if (!sc) return;
+      setSurfaces(sc.surfaces.map(upgradeSurface));
+      setGlobals((g) => ({ ...g, ...sc.globals, blackout: g.blackout }));
+      setTestPattern(sc.testPattern ?? "off");
+      setActiveSceneId(id);
+    },
+    [scenes],
+  );
+
+  const runShow = () => {
+    if (!cues.length) return;
+    showStart.current = performance.now();
+    setShowTime(0);
+    setShowPlaying(true);
+  };
+
+  useEffect(() => {
+    if (!showPlaying) return;
+    let raf = 0;
+    let fired = -1;
+    const sorted = [...cues].sort((a, b) => a.start - b.start);
+    const tick = () => {
+      raf = requestAnimationFrame(tick);
+      const t = (performance.now() - showStart.current) / 1000;
+      setShowTime(t);
+      const due = sorted.filter((c) => c.start <= t);
+      const idx = due.length - 1;
+      if (idx >= 0 && idx !== fired) {
+        fired = idx;
+        recallScene(due[idx]!.sceneId);
+      }
+      const last = sorted[sorted.length - 1];
+      if (last && t > last.start + 1 && !cues.some((c) => c.loop)) {
+        setShowPlaying(false);
+      } else if (last && t > last.start + 1) {
+        showStart.current = performance.now();
+        fired = -1;
+      }
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [showPlaying, cues, recallScene]);
+
+  // ----- tablet pairing (relay only, files stay here) -----
+  const remoteRef = useRef<RealtimeChannel | null>(null);
+  const startPairing = () => {
+    if (pairCode) {
+      setPairCode(null);
+      remoteRef.current?.unsubscribe();
+      remoteRef.current = null;
+      setRemoteConnected(false);
+      return;
+    }
+    const code = Math.random().toString(36).slice(2, 8).toUpperCase();
+    setPairCode(code);
+  };
+
+  useEffect(() => {
+    if (!pairCode) return;
+    const ch = supabase.channel(`prism-${pairCode}`, { config: { broadcast: { self: false } } });
+    ch.on("broadcast", { event: "join" }, () => {
+      setRemoteConnected(true);
+      ch.send({ type: "broadcast", event: "state", payload: { surfaces } });
+    })
+      .on("broadcast", { event: "corners" }, ({ payload }) => {
+        const { id, corners } = payload as { id: string; corners: Pt[] };
+        setSurfaces((prev) => prev.map((s) => (s.id === id ? { ...s, corners } : s)));
+      })
+      .on("broadcast", { event: "select" }, ({ payload }) => {
+        setSelectedId((payload as { id: string }).id);
+      })
+      .subscribe();
+    remoteRef.current = ch;
+    return () => {
+      void ch.unsubscribe();
+      remoteRef.current = null;
+    };
+  }, [pairCode]);
+
+  useEffect(() => {
+    if (!remoteConnected) return;
+    remoteRef.current?.send({ type: "broadcast", event: "state", payload: { surfaces } });
+  }, [surfaces, remoteConnected]);
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground lg:flex-row">
@@ -678,6 +994,59 @@ function Studio() {
               onValueChange={([v = 0]) => setGlobals((g) => ({ ...g, brightness: v }))}
             />
           </Labeled>
+        </section>
+
+        {/* Show */}
+        <section className="space-y-3">
+          <SectionTitle>Show</SectionTitle>
+          <ShowPanel
+            scenes={scenes}
+            cues={cues}
+            outputs={outputs}
+            openOutputs={openOutputs}
+            playing={showPlaying}
+            time={showTime}
+            activeSceneId={activeSceneId}
+            onSaveScene={saveScene}
+            onRecall={recallScene}
+            onRenameScene={(id, name) =>
+              setScenes((prev) => prev.map((sc) => (sc.id === id ? { ...sc, name } : sc)))
+            }
+            onDeleteScene={(id) => {
+              setScenes((prev) => prev.filter((sc) => sc.id !== id));
+              setCues((prev) => prev.filter((c) => c.sceneId !== id));
+            }}
+            onAddCue={(sceneId) =>
+              setCues((prev) => [
+                ...prev,
+                {
+                  id: `c${Date.now()}`,
+                  sceneId,
+                  start: prev.length ? Math.max(...prev.map((c) => c.start)) + 10 : 0,
+                  transition: "fade",
+                },
+              ])
+            }
+            onPatchCue={(id, next) =>
+              setCues((prev) => prev.map((c) => (c.id === id ? { ...c, ...next } : c)))
+            }
+            onRemoveCue={(id) => setCues((prev) => prev.filter((c) => c.id !== id))}
+            onPlay={runShow}
+            onStop={() => setShowPlaying(false)}
+            onAddOutput={() =>
+              setOutputs((prev) => [
+                ...prev,
+                { id: `out${prev.length + 1}`, name: `Projector ${prev.length + 1}` },
+              ])
+            }
+            onRemoveOutput={(id) => {
+              setOutputs((prev) => prev.filter((o) => o.id !== id));
+              setSurfaces((prev) =>
+                prev.map((s) => (s.outputId === id ? { ...s, outputId: "out1" } : s)),
+              );
+            }}
+            onOpenOutput={openOutput}
+          />
         </section>
 
         {/* Look */}
@@ -842,6 +1211,26 @@ function Studio() {
                         </SelectContent>
                       </Select>
                     </div>
+                    {outputs.length > 1 && (
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="shrink-0 text-muted-foreground">Projector</span>
+                        <Select
+                          value={s.outputId}
+                          onValueChange={(v) => patch(s.id, { outputId: v })}
+                        >
+                          <SelectTrigger className="h-8 flex-1" aria-label="Projector">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {outputs.map((o) => (
+                              <SelectItem key={o.id} value={o.id}>
+                                {o.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
                     <Button
                       size="sm"
                       variant="secondary"
@@ -930,28 +1319,48 @@ function Studio() {
                   {media.map((m) => {
                     const active = selected?.source === `media:${m.id}`;
                     return (
-                      <button
+                      <div
                         key={m.id}
-                        title={m.name}
-                        onClick={() => selected && patch(selected.id, { source: `media:${m.id}` })}
                         className={`relative aspect-square overflow-hidden rounded-md border ${
                           active ? "border-primary" : "border-border"
                         }`}
                       >
-                        {m.kind === "image" ? (
-                          <img src={m.url} alt={m.name} className="size-full object-cover" />
-                        ) : (
-                          <video
-                            src={m.url}
-                            muted
-                            loop
-                            playsInline
-                            autoPlay
-                            className="size-full object-cover"
-                          />
-                        )}
-                        <ImageIcon className="absolute bottom-1 right-1 size-3 text-foreground/70" />
-                      </button>
+                        <button
+                          title={m.name}
+                          onClick={() => selected && patch(selected.id, { source: `media:${m.id}` })}
+                          className="size-full"
+                        >
+                          {m.kind === "image" ? (
+                            <img src={m.url} alt={m.name} className="size-full object-cover" />
+                          ) : (
+                            <video
+                              src={m.url}
+                              muted
+                              loop
+                              playsInline
+                              autoPlay
+                              className="size-full object-cover"
+                            />
+                          )}
+                        </button>
+                        <button
+                          aria-label={`Edit ${m.name}`}
+                          onClick={() => {
+                            setEditMediaId(m.id);
+                            setView("editor");
+                          }}
+                          className="absolute bottom-0.5 left-0.5 rounded bg-background/80 p-0.5 text-foreground/80 hover:text-primary"
+                        >
+                          <Scissors className="size-3" />
+                        </button>
+                        <button
+                          aria-label={`Delete ${m.name}`}
+                          onClick={() => removeMedia(m.id)}
+                          className="absolute right-0.5 top-0.5 rounded bg-background/80 p-0.5 text-foreground/80 hover:text-destructive"
+                        >
+                          <Trash2 className="size-3" />
+                        </button>
+                      </div>
                     );
                   })}
                 </div>
@@ -995,11 +1404,26 @@ function Studio() {
             onSnap={() => setSnap((s) => !s)}
             testPattern={testPattern}
             onTestPattern={setTestPattern}
-            roomView={roomView}
-            onRoomView={() => setRoomView((r) => !r)}
-            outputOpen={outputOpen}
-            onOpenOutput={openOutput}
+            view={view}
+            onView={setView}
+            onPair={startPairing}
+            paired={remoteConnected}
           />
+        )}
+        {pairCode && !fullscreen && (
+          <div className="flex flex-wrap items-center gap-3 border-b border-border bg-primary/10 px-3 py-2 text-xs">
+            <span>
+              On your iPad or phone open{" "}
+              <strong className="font-mono">{window.location.origin}/remote</strong> and type code{" "}
+              <strong className="font-mono tracking-[0.2em]">{pairCode}</strong>
+            </span>
+            <span className="text-muted-foreground">
+              {remoteConnected ? "Device connected — drag corners there." : "Waiting for device…"}
+            </span>
+            <Button size="sm" variant="ghost" className="ml-auto h-7" onClick={startPairing}>
+              Stop pairing
+            </Button>
+          </div>
         )}
         <div className="relative min-h-0 flex-1 bg-black" ref={stageRef}>
           {surfaces.map((s, i) => (
@@ -1009,7 +1433,7 @@ function Studio() {
               index={i}
               stage={stage}
               globals={
-                roomView && !fullscreen
+                view !== "stage" && !fullscreen
                   ? { ...globals, brightness: globals.brightness * 0.35 }
                   : globals
               }
@@ -1017,7 +1441,7 @@ function Studio() {
               levels={levels}
             />
           ))}
-          {roomView && !fullscreen && (
+          {view === "room" && !fullscreen && (
             <RoomView
               stage={stage}
               sounds={sounds}
@@ -1033,7 +1457,26 @@ function Studio() {
               }
             />
           )}
-          {mapping && !fullscreen && !roomView && (
+          {view === "editor" && !fullscreen && (
+            <MediaEditor
+              media={media}
+              item={media.find((m) => m.id === editMediaId) ?? media[0] ?? null}
+              sounds={sounds}
+              onSelect={setEditMediaId}
+              onPatch={patchMedia}
+              onSaveClip={(id, crop, inS, outS) => {
+                const from = media.find((m) => m.id === id);
+                if (!from) return;
+                saveClip(
+                  from,
+                  { crop, trimStart: inS, trimEnd: outS },
+                  `${from.name} clip ${inS.toFixed(1)}-${outS.toFixed(1)}s`,
+                );
+              }}
+              onDelete={removeMedia}
+            />
+          )}
+          {mapping && !fullscreen && view === "stage" && (
             <>
               {surfaces
                 .filter((s) => s.id !== selected?.id && s.visible)

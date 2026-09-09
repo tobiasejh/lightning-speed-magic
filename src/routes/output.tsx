@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { SurfaceLayer } from "@/components/SurfaceLayer";
 import { openChannel, type OutputSnapshot, type SyncMessage } from "@/lib/sync";
-import { defaultGlobals, mediaElements } from "@/lib/types";
+import { defaultGlobals, mediaElements, mediaMeta } from "@/lib/types";
 
 const title = "Prism Output — Projector Screen";
 const description =
@@ -31,9 +31,14 @@ function OutputPage() {
     testPattern: "off",
     media: [],
   });
+  const [outputId, setOutputId] = useState("out1");
   const [connected, setConnected] = useState(false);
   const [stage, setStage] = useState({ w: 0, h: 0 });
   const stageRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setOutputId(new URLSearchParams(window.location.search).get("id") || "out1");
+  }, []);
 
   useEffect(() => {
     const el = stageRef.current;
@@ -50,13 +55,23 @@ function OutputPage() {
     const ch = openChannel();
     if (!ch) return;
     const urls: string[] = [];
+    const id = new URLSearchParams(window.location.search).get("id") || "out1";
     ch.onmessage = (e: MessageEvent<SyncMessage>) => {
       const msg = e.data;
       if (msg.type === "state") {
         setSnap(msg.snapshot);
+        for (const m of msg.snapshot.media) mediaMeta.set(m.id, m);
         setConnected(true);
+      } else if (msg.type === "drop-media") {
+        for (const dropped of msg.ids) {
+          const el = mediaElements.get(dropped);
+          if (el instanceof HTMLVideoElement) el.pause();
+          mediaElements.delete(dropped);
+          mediaMeta.delete(dropped);
+        }
       } else if (msg.type === "media") {
         for (const { meta, file } of msg.items) {
+          mediaMeta.set(meta.id, meta);
           if (mediaElements.has(meta.id)) continue;
           const url = URL.createObjectURL(file);
           urls.push(url);
@@ -78,15 +93,16 @@ function OutputPage() {
         setConnected(false);
       }
     };
-    ch.postMessage({ type: "hello" } satisfies SyncMessage);
+    ch.postMessage({ type: "hello", outputId: id } satisfies SyncMessage);
     const ping = setInterval(() => {
-      if (!connected) ch.postMessage({ type: "hello" } satisfies SyncMessage);
+      if (!connected) ch.postMessage({ type: "hello", outputId: id } satisfies SyncMessage);
     }, 2000);
     return () => {
       clearInterval(ping);
       ch.close();
       urls.forEach((u) => URL.revokeObjectURL(u));
       mediaElements.clear();
+      mediaMeta.clear();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -96,13 +112,15 @@ function OutputPage() {
     else void document.documentElement.requestFullscreen();
   };
 
+  const mine = snap.surfaces.filter((s) => (s.outputId || "out1") === outputId);
+
   return (
     <div
       ref={stageRef}
       onClick={toggleFullscreen}
       className="relative h-screen w-screen cursor-none select-none overflow-hidden bg-black"
     >
-      {snap.surfaces.map((s, i) => (
+      {mine.map((s, i) => (
         <SurfaceLayer
           key={s.id}
           surface={s}

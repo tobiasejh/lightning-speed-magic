@@ -335,12 +335,69 @@ export class SpatialEngine {
     return item;
   }
 
+  /**
+   * Route an existing media element (e.g. a video already on the stage) into the
+   * spatial field. Playback stays owned by that element, so picture and sound
+   * can never drift apart.
+   */
+  addElementSound(item: SoundItem, el: HTMLMediaElement): SoundItem {
+    if (this.sources.has(item.id)) return item;
+    const input = this.ctx.createGain();
+    const distance = this.ctx.createGain();
+    const lowpass = this.ctx.createBiquadFilter();
+    lowpass.type = "lowpass";
+    const analyser = this.ctx.createAnalyser();
+    analyser.fftSize = 512;
+    analyser.smoothingTimeConstant = 0.7;
+    const encoder: GainNode[] = [];
+    el.muted = false;
+    const g: SourceGraph = {
+      item,
+      el: el as HTMLAudioElement,
+      buffer: null,
+      bufSrc: null,
+      input,
+      distance,
+      lowpass,
+      analyser,
+      data: new Uint8Array(new ArrayBuffer(analyser.frequencyBinCount)),
+      levels: { ...silentLevels },
+      encoder,
+      ambiRot: null,
+      splitter: null,
+      startedAt: 0,
+      offset: 0,
+    };
+    const src = this.ctx.createMediaElementSource(el);
+    src.connect(input);
+    input.connect(lowpass);
+    lowpass.connect(distance);
+    distance.connect(analyser);
+    distance.connect(this.reverbIn);
+    for (let i = 0; i < CH; i++) {
+      const e = this.ctx.createGain();
+      e.gain.value = 0;
+      distance.connect(e);
+      e.connect(this.field, 0, i);
+      encoder.push(e);
+    }
+    this.sources.set(item.id, g);
+    this.updateSource(g);
+    return { ...item, duration: el.duration || item.duration };
+  }
+
+  has(id: string) {
+    return this.sources.has(id);
+  }
+
   removeSound(id: string) {
     const g = this.sources.get(id);
     if (!g) return;
     this.stopSound(id);
-    g.el?.pause();
-    if (g.el) g.el.src = "";
+    if (g.item.kind !== "video") {
+      g.el?.pause();
+      if (g.el) g.el.src = "";
+    }
     [g.input, g.distance, g.lowpass, g.analyser, ...g.encoder, ...(g.ambiRot ?? [])].forEach((n) =>
       n.disconnect(),
     );
@@ -467,6 +524,22 @@ export class SpatialEngine {
     this.pauseSound(id);
     if (g.el) g.el.currentTime = 0;
     g.offset = 0;
+  }
+
+  /** Jump a source to a position in seconds (used to line sound up with video). */
+  seek(id: string, seconds: number) {
+    const g = this.sources.get(id);
+    if (!g) return;
+    const at = Math.max(0, seconds);
+    if (g.el) g.el.currentTime = at;
+    else {
+      g.offset = at;
+      if (g.bufSrc) {
+        g.bufSrc.stop();
+        g.bufSrc = null;
+        if (g.item.playing) this.playSound(id);
+      }
+    }
   }
 
   progress(id: string) {

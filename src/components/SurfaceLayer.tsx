@@ -2,7 +2,13 @@ import { useEffect, useRef } from "react";
 
 import { silentLevels, type AudioLevelProvider } from "@/lib/audio";
 import { drawPattern } from "@/lib/patterns";
-import { mediaElements, type Globals, type Surface, type TestPattern } from "@/lib/types";
+import {
+  mediaElements,
+  mediaMeta,
+  type Globals,
+  type Surface,
+  type TestPattern,
+} from "@/lib/types";
 import { quadMatrix } from "@/lib/warp";
 import { visualById } from "@/lib/visuals";
 
@@ -58,24 +64,37 @@ export function SurfaceLayer({ surface, index, stage, globals, testPattern, leve
       ctx.translate(-cw / 2, -chh / 2);
 
       if (s.source.startsWith("media:")) {
-        const el = mediaElements.get(s.source.slice(6));
+        const mediaId = s.source.slice(6);
+        const el = mediaElements.get(mediaId);
+        const meta = mediaMeta.get(mediaId);
         ctx.fillStyle = "#000";
         ctx.fillRect(0, 0, cw, chh);
         if (el) {
           const iw = el instanceof HTMLVideoElement ? el.videoWidth : el.naturalWidth;
           const ih = el instanceof HTMLVideoElement ? el.videoHeight : el.naturalHeight;
           if (iw && ih) {
+            // keep video playback inside its trimmed range
+            if (el instanceof HTMLVideoElement && meta && (meta.trimStart || meta.trimEnd)) {
+              const a = meta.trimStart ?? 0;
+              const b = meta.trimEnd ?? el.duration || 0;
+              if (b > a && (el.currentTime > b || el.currentTime < a - 0.05)) el.currentTime = a;
+            }
+            const crop = meta?.crop;
+            const sx = crop ? crop.x * iw : 0;
+            const sy = crop ? crop.y * ih : 0;
+            const sw = crop ? crop.w * iw : iw;
+            const sh = crop ? crop.h * ih : ih;
             const pulse = 1 + audio.bass * 0.08;
             try {
-              if (s.fit === "stretch") {
+              if (s.fit === "stretch" || s.fit === "fill") {
                 const dw = cw * pulse;
                 const dh = chh * pulse;
-                ctx.drawImage(el, (cw - dw) / 2, (chh - dh) / 2, dw, dh);
+                ctx.drawImage(el, sx, sy, sw, sh, (cw - dw) / 2, (chh - dh) / 2, dw, dh);
               } else {
-                const scale = Math.max(cw / iw, chh / ih) * pulse;
-                const dw = iw * scale;
-                const dh = ih * scale;
-                ctx.drawImage(el, (cw - dw) / 2, (chh - dh) / 2, dw, dh);
+                const scale = Math.max(cw / sw, chh / sh) * pulse;
+                const dw = sw * scale;
+                const dh = sh * scale;
+                ctx.drawImage(el, sx, sy, sw, sh, (cw - dw) / 2, (chh - dh) / 2, dw, dh);
               }
             } catch {
               /* frame not ready */
