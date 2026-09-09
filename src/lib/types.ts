@@ -10,15 +10,15 @@ export type MediaItem = {
   url: string;
   /** Which stored file this item plays; clips share their parent's file. */
   blobId: string;
-  crop?: Crop;
+  crop?: Crop | undefined;
   /** seconds; video clips only */
-  trimStart?: number;
-  trimEnd?: number;
+  trimStart?: number | undefined;
+  trimEnd?: number | undefined;
   /** video has an audio track we can route */
-  hasAudio?: boolean;
+  hasAudio?: boolean | undefined;
   /** offset in seconds applied to a linked separate audio track */
-  syncSoundId?: string;
-  syncOffset?: number;
+  syncSoundId?: string | undefined;
+  syncOffset?: number | undefined;
 };
 
 export type FitMode = "cover" | "stretch" | "fill";
@@ -61,6 +61,8 @@ export type TimelineCue = {
   transition: "cut" | "fade";
   /** fade length in seconds */
   fade: number;
+  /** restart the timeline when it reaches the end */
+  loop?: boolean | undefined;
 };
 
 export type Globals = {

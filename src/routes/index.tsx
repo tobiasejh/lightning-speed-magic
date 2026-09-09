@@ -1024,6 +1024,7 @@ function Studio() {
                   sceneId,
                   start: prev.length ? Math.max(...prev.map((c) => c.start)) + 10 : 0,
                   transition: "fade",
+                  fade: 1,
                 },
               ])
             }
