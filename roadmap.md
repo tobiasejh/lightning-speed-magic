@@ -19,3 +19,12 @@
 - [x] /output window sync
 - [x] Projects: IndexedDB save/open, autosave, export/import
 - [x] Verified in browser
+
+## v3
+- [x] Delete media from My media
+- [x] mp4 sound appears in Sound tab (mute/volume/spatial/solo)
+- [x] Media editor: crop a region, trim, save clips, link a separate soundtrack with offset
+- [x] Scenes + timeline with cues and transitions
+- [x] Multiple projector windows with per-surface assignment
+- [x] Tablet/phone remote mapping via pairing code
+- [x] Verified in browser
