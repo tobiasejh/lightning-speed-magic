@@ -8,9 +8,10 @@ export type OutputSnapshot = {
 };
 
 export type SyncMessage =
-  | { type: "hello" }
+  | { type: "hello"; outputId?: string }
   | { type: "state"; snapshot: OutputSnapshot }
   | { type: "media"; items: { meta: Omit<MediaItem, "url">; file: Blob }[] }
+  | { type: "drop-media"; ids: string[] }
   | { type: "bye" };
 
 export const CHANNEL = "prism-output";

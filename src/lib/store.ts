@@ -36,7 +36,10 @@ export async function saveProject(project: Project, blobs: BlobMap) {
   await tx.objectStore("projects").put(project);
   const store = tx.objectStore("blobs");
   const existing = (await store.getAll()).filter((b) => b.projectId === project.id);
-  const wanted = new Set([...project.media.map((m) => m.id), ...project.sounds.map((s) => s.id)]);
+  const wanted = new Set([
+    ...project.media.map((m) => m.blobId || m.id),
+    ...project.sounds.filter((s) => s.kind !== "video").map((s) => s.id),
+  ]);
   for (const e of existing) if (!wanted.has(e.id)) await store.delete(e.id);
   for (const id of wanted) {
     const blob = blobs.get(id);

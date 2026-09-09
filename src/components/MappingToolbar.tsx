@@ -1,4 +1,4 @@
-import { ExternalLink, Grid3x3, Magnet, Move, Volume2 } from "lucide-react";
+import { Film, Grid3x3, Magnet, Monitor, Move, Smartphone, Volume2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -10,6 +10,8 @@ import {
 } from "@/components/ui/select";
 import type { TestPattern } from "@/lib/types";
 
+export type StageView = "stage" | "room" | "editor";
+
 type Props = {
   mapping: boolean;
   onMapping: () => void;
@@ -17,10 +19,10 @@ type Props = {
   onSnap: () => void;
   testPattern: TestPattern;
   onTestPattern: (p: TestPattern) => void;
-  roomView: boolean;
-  onRoomView: () => void;
-  outputOpen: boolean;
-  onOpenOutput: () => void;
+  view: StageView;
+  onView: (v: StageView) => void;
+  onPair: () => void;
+  paired: boolean;
 };
 
 const patterns: { value: TestPattern; label: string }[] = [
@@ -36,12 +38,32 @@ export function MappingToolbar(p: Props) {
   return (
     <div className="flex flex-wrap items-center gap-2 border-b border-border bg-card/60 px-3 py-2">
       <p className="mr-auto hidden text-xs text-muted-foreground xl:block">
-        {p.roomView
+        {p.view === "room"
           ? "Drag sound icons, the listener and speakers to place them in the room."
-          : "Drag the corner dots so each shape lines up with the real surface. Hold Shift to skip snapping."}
+          : p.view === "editor"
+            ? "Crop, cut and sync your photos and videos before projecting them."
+            : "Drag the corner dots so each shape lines up with the real surface. Hold Shift to skip snapping."}
       </p>
-      <Button size="sm" variant={p.roomView ? "default" : "secondary"} onClick={p.onRoomView}>
-        <Volume2 className="size-4" /> {p.roomView ? "Room view" : "Stage view"}
+      <Button
+        size="sm"
+        variant={p.view === "stage" ? "default" : "secondary"}
+        onClick={() => p.onView("stage")}
+      >
+        <Monitor className="size-4" /> Stage
+      </Button>
+      <Button
+        size="sm"
+        variant={p.view === "room" ? "default" : "secondary"}
+        onClick={() => p.onView("room")}
+      >
+        <Volume2 className="size-4" /> Room
+      </Button>
+      <Button
+        size="sm"
+        variant={p.view === "editor" ? "default" : "secondary"}
+        onClick={() => p.onView("editor")}
+      >
+        <Film className="size-4" /> Editor
       </Button>
       <Button size="sm" variant={p.mapping ? "default" : "secondary"} onClick={p.onMapping}>
         <Move className="size-4" /> {p.mapping ? "Mapping on" : "Mapping off"}
@@ -67,8 +89,8 @@ export function MappingToolbar(p: Props) {
           ))}
         </SelectContent>
       </Select>
-      <Button size="sm" variant="outline" onClick={p.onOpenOutput}>
-        <ExternalLink className="size-4" /> {p.outputOpen ? "Output live" : "Open output window"}
+      <Button size="sm" variant={p.paired ? "default" : "outline"} onClick={p.onPair}>
+        <Smartphone className="size-4" /> {p.paired ? "Tablet linked" : "Pair a device"}
       </Button>
     </div>
   );

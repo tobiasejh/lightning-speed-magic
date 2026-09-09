@@ -1,13 +1,27 @@
 import type { Pt } from "./warp";
 
+/** Normalised crop rectangle (0..1) inside the source frame. */
+export type Crop = { x: number; y: number; w: number; h: number };
+
 export type MediaItem = {
   id: string;
   name: string;
   kind: "image" | "video";
   url: string;
+  /** Which stored file this item plays; clips share their parent's file. */
+  blobId: string;
+  crop?: Crop | undefined;
+  /** seconds; video clips only */
+  trimStart?: number | undefined;
+  trimEnd?: number | undefined;
+  /** video has an audio track we can route */
+  hasAudio?: boolean | undefined;
+  /** offset in seconds applied to a linked separate audio track */
+  syncSoundId?: string | undefined;
+  syncOffset?: number | undefined;
 };
 
-export type FitMode = "cover" | "stretch";
+export type FitMode = "cover" | "stretch" | "fill";
 
 export type Surface = {
   id: string;
@@ -25,6 +39,30 @@ export type Surface = {
   rotate: number;
   /** "mic" | "master" | "sound:<id>" */
   audioSource: string;
+  /** which projector output window shows this surface */
+  outputId: string;
+};
+
+export type OutputScreen = { id: string; name: string };
+
+export type Scene = {
+  id: string;
+  name: string;
+  surfaces: Surface[];
+  globals: Globals;
+  testPattern: TestPattern;
+};
+
+export type TimelineCue = {
+  id: string;
+  sceneId: string;
+  /** seconds from show start */
+  start: number;
+  transition: "cut" | "fade";
+  /** fade length in seconds */
+  fade: number;
+  /** restart the timeline when it reaches the end */
+  loop?: boolean | undefined;
 };
 
 export type Globals = {
@@ -40,7 +78,7 @@ export type TestPattern = "off" | "grid" | "crosshair" | "bars" | "frame" | "num
 
 export type Vec3 = { x: number; y: number; z: number };
 
-export type SoundKind = "mono" | "stereo" | "ambisonic";
+export type SoundKind = "mono" | "stereo" | "ambisonic" | "video";
 
 export type SoundItem = {
   id: string;
@@ -58,6 +96,8 @@ export type SoundItem = {
   /** heading (degrees) for ambisonic files */
   heading: number;
   duration: number;
+  /** for kind "video": the media item whose element feeds this track */
+  mediaId?: string;
 };
 
 export type Speaker = { id: string; name: string; position: Vec3 };
@@ -86,10 +126,18 @@ export type Project = {
   sounds: SoundItem[];
   room: RoomConfig;
   testPattern: TestPattern;
+  outputs?: OutputScreen[];
+  scenes?: Scene[];
+  timeline?: TimelineCue[];
 };
 
 /** Live media elements, kept outside React state. */
 export const mediaElements = new Map<string, HTMLImageElement | HTMLVideoElement>();
+
+/** Metadata (crop/trim) for live media, mirrored in both windows. */
+export const mediaMeta = new Map<string, Omit<MediaItem, "url">>();
+
+export const defaultOutputs = (): OutputScreen[] => [{ id: "out1", name: "Projector 1" }];
 
 export const SPEAKER_LAYOUTS: Record<string, Speaker[]> = {
   stereo: [
