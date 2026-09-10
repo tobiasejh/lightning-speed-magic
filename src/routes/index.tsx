@@ -1468,6 +1468,23 @@ function Studio() {
               onDelete={removeMedia}
             />
           )}
+          {!fullscreen && view === "stage" && (
+            <svg className="pointer-events-none absolute inset-0 size-full">
+              {surfaces
+                .filter((s) => s.visible)
+                .map((s) => (
+                  <polygon
+                    key={s.id}
+                    points={s.corners.map((c) => `${c.x * stage.w},${c.y * stage.h}`).join(" ")}
+                    onPointerDown={() => setSelectedId(s.id)}
+                    className={`pointer-events-auto cursor-pointer stroke-primary/70 ${
+                      s.id === selected?.id ? "fill-transparent" : "fill-transparent hover:fill-primary/10"
+                    }`}
+                    strokeWidth={s.id === selected?.id ? 2 : 0}
+                  />
+                ))}
+            </svg>
+          )}
           {mapping && !fullscreen && view === "stage" && (
             <>
               {surfaces
