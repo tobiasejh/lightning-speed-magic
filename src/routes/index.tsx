@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 
 import { MappingToolbar, type StageView } from "@/components/MappingToolbar";
 import { MediaEditor } from "@/components/MediaEditor";
+import { PairBanner } from "@/components/PairBanner";
 import { ProjectsMenu } from "@/components/ProjectsMenu";
 import { RoomView } from "@/components/RoomView";
 import { ShowPanel } from "@/components/ShowPanel";
@@ -1414,19 +1415,7 @@ function Studio() {
           />
         )}
         {pairCode && !fullscreen && (
-          <div className="flex flex-wrap items-center gap-3 border-b border-border bg-primary/10 px-3 py-2 text-xs">
-            <span>
-              On your iPad or phone open{" "}
-              <strong className="font-mono">{window.location.origin}/remote</strong> and type code{" "}
-              <strong className="font-mono tracking-[0.2em]">{pairCode}</strong>
-            </span>
-            <span className="text-muted-foreground">
-              {remoteConnected ? "Device connected — drag corners there." : "Waiting for device…"}
-            </span>
-            <Button size="sm" variant="ghost" className="ml-auto h-7" onClick={startPairing}>
-              Stop pairing
-            </Button>
-          </div>
+          <PairBanner code={pairCode} connected={remoteConnected} onStop={startPairing} />
         )}
         <div className="relative min-h-0 flex-1 bg-black" ref={stageRef}>
           {surfaces.map((s, i) => (
@@ -1478,6 +1467,25 @@ function Studio() {
               }}
               onDelete={removeMedia}
             />
+          )}
+          {!fullscreen && view === "stage" && (
+            <svg className="pointer-events-none absolute inset-0 size-full">
+              {surfaces
+                .filter((s) => s.visible)
+                .map((s) => (
+                  <polygon
+                    key={s.id}
+                    points={s.corners.map((c) => `${c.x * stage.w},${c.y * stage.h}`).join(" ")}
+                    onPointerDown={() => setSelectedId(s.id)}
+                    className={`pointer-events-auto cursor-pointer stroke-primary/70 ${
+                      s.id === selected?.id
+                        ? "fill-transparent"
+                        : "fill-transparent hover:fill-primary/10"
+                    }`}
+                    strokeWidth={s.id === selected?.id ? 2 : 0}
+                  />
+                ))}
+            </svg>
           )}
           {mapping && !fullscreen && view === "stage" && (
             <>
