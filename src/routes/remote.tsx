@@ -1,15 +1,20 @@
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { Magnet } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
+import { snapCandidates, snapPoint } from "@/lib/snap";
 import type { Surface } from "@/lib/types";
 import type { Pt } from "@/lib/warp";
 
 export const Route = createFileRoute("/remote")({
   component: Remote,
+  validateSearch: (search: Record<string, unknown>) => ({
+    code: typeof search.code === "string" ? search.code : undefined,
+  }),
   head: () => ({
     meta: [
       { title: "Prism remote mapping — map surfaces from a tablet" },
@@ -30,12 +35,17 @@ export const Route = createFileRoute("/remote")({
 });
 
 function Remote() {
-  const [code, setCode] = useState("");
+  const { code: codeFromLink } = Route.useSearch();
+  const [code, setCode] = useState(codeFromLink?.toUpperCase() ?? "");
   const [joined, setJoined] = useState(false);
+  const [snap, setSnap] = useState(true);
+  const [snapFlash, setSnapFlash] = useState<Pt | null>(null);
   const [surfaces, setSurfaces] = useState<Surface[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const chRef = useRef<RealtimeChannel | null>(null);
   const padRef = useRef<HTMLDivElement | null>(null);
+  const snapRef = useRef(snap);
+  snapRef.current = snap;
 
   useEffect(
     () => () => {
@@ -44,9 +54,9 @@ function Remote() {
     [],
   );
 
-  const join = () => {
-    const key = code.trim().toUpperCase();
-    if (key.length < 4) return;
+  const join = useCallback((raw: string) => {
+    const key = raw.trim().toUpperCase();
+    if (key.length < 4 || chRef.current) return;
     const ch = supabase.channel(`prism-${key}`, { config: { broadcast: { self: false } } });
     ch.on("broadcast", { event: "state" }, ({ payload }) => {
       const next = (payload as { surfaces: Surface[] }).surfaces ?? [];
@@ -59,7 +69,11 @@ function Remote() {
       }
     });
     chRef.current = ch;
-  };
+  }, []);
+
+  useEffect(() => {
+    if (codeFromLink) join(codeFromLink);
+  }, [codeFromLink, join]);
 
   const selected = surfaces.find((s) => s.id === selectedId) ?? surfaces[0] ?? null;
 
@@ -70,11 +84,19 @@ function Remote() {
     const target = e.currentTarget;
     if (!rect) return;
     target.setPointerCapture(e.pointerId);
+    const candidates = snapCandidates(surfaces, selected.id);
     const move = (ev: PointerEvent) => {
-      const p: Pt = {
+      let p: Pt = {
         x: Math.min(1.4, Math.max(-0.4, (ev.clientX - rect.left) / rect.width)),
         y: Math.min(1.4, Math.max(-0.4, (ev.clientY - rect.top) / rect.height)),
       };
+      if (snapRef.current) {
+        const res = snapPoint(p, candidates, { w: rect.width, h: rect.height }, 18);
+        p = res.point;
+        setSnapFlash(res.snapped ? res.target : null);
+      } else {
+        setSnapFlash(null);
+      }
       setSurfaces((prev) =>
         prev.map((s) => {
           if (s.id !== selected.id) return s;
@@ -89,6 +111,7 @@ function Remote() {
       );
     };
     const up = () => {
+      setSnapFlash(null);
       target.removeEventListener("pointermove", move);
       target.removeEventListener("pointerup", up);
     };
@@ -108,10 +131,10 @@ function Remote() {
             value={code}
             onChange={(e) => setCode(e.target.value.toUpperCase())}
             placeholder="Pairing code"
-            className="text-center font-mono text-lg tracking-[0.3em]"
+            className="h-14 text-center font-mono text-3xl tracking-[0.3em]"
             aria-label="Pairing code"
           />
-          <Button className="w-full" onClick={join}>
+          <Button className="w-full" onClick={() => join(code)}>
             Connect
           </Button>
         </div>
@@ -138,6 +161,15 @@ function Remote() {
         {surfaces.length === 0 && (
           <p className="text-xs text-muted-foreground">Waiting for the studio…</p>
         )}
+        <Button
+          size="sm"
+          variant={snap ? "default" : "outline"}
+          aria-pressed={snap}
+          className="ml-auto"
+          onClick={() => setSnap((v) => !v)}
+        >
+          <Magnet className="size-4" /> Snap
+        </Button>
       </div>
       <div
         ref={padRef}
@@ -157,6 +189,12 @@ function Remote() {
             />
           ))}
         </svg>
+        {snapFlash && (
+          <div
+            className="pointer-events-none absolute size-10 -translate-x-1/2 -translate-y-1/2 animate-ping rounded-full border-2 border-primary"
+            style={{ left: `${snapFlash.x * 100}%`, top: `${snapFlash.y * 100}%` }}
+          />
+        )}
         {selected?.corners.map((c, i) => (
           <div
             key={i}
