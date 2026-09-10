@@ -13,7 +13,7 @@ import type { Pt } from "@/lib/warp";
 export const Route = createFileRoute("/remote")({
   component: Remote,
   validateSearch: (search: Record<string, unknown>) => ({
-    code: typeof search.code === "string" ? search.code : undefined,
+    code: typeof search['code'] === "string" ? (search['code'] as string) : undefined,
   }),
   head: () => ({
     meta: [
