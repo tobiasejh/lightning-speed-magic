@@ -1414,19 +1414,7 @@ function Studio() {
           />
         )}
         {pairCode && !fullscreen && (
-          <div className="flex flex-wrap items-center gap-3 border-b border-border bg-primary/10 px-3 py-2 text-xs">
-            <span>
-              On your iPad or phone open{" "}
-              <strong className="font-mono">{window.location.origin}/remote</strong> and type code{" "}
-              <strong className="font-mono tracking-[0.2em]">{pairCode}</strong>
-            </span>
-            <span className="text-muted-foreground">
-              {remoteConnected ? "Device connected — drag corners there." : "Waiting for device…"}
-            </span>
-            <Button size="sm" variant="ghost" className="ml-auto h-7" onClick={startPairing}>
-              Stop pairing
-            </Button>
-          </div>
+          <PairBanner code={pairCode} connected={remoteConnected} onStop={startPairing} />
         )}
         <div className="relative min-h-0 flex-1 bg-black" ref={stageRef}>
           {surfaces.map((s, i) => (
