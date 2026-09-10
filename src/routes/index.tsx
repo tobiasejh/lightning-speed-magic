@@ -1478,7 +1478,9 @@ function Studio() {
                     points={s.corners.map((c) => `${c.x * stage.w},${c.y * stage.h}`).join(" ")}
                     onPointerDown={() => setSelectedId(s.id)}
                     className={`pointer-events-auto cursor-pointer stroke-primary/70 ${
-                      s.id === selected?.id ? "fill-transparent" : "fill-transparent hover:fill-primary/10"
+                      s.id === selected?.id
+                        ? "fill-transparent"
+                        : "fill-transparent hover:fill-primary/10"
                     }`}
                     strokeWidth={s.id === selected?.id ? 2 : 0}
                   />
