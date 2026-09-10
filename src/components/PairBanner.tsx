@@ -16,11 +16,14 @@ export function PairBanner({ code, connected, onStop }: Props) {
   useEffect(() => {
     if (!url) return;
     let alive = true;
-    QRCode.toDataURL(url, { margin: 1, width: 220, color: { dark: "#ffffff", light: "#00000000" } })
+    QRCode.toDataURL(url, { margin: 1, width: 220})
       .then((d) => {
         if (alive) setQr(d);
       })
-      .catch(() => setQr(null));
+      .catch((e) => {
+        console.error("QR failed", e);
+        setQr(null);
+      });
     return () => {
       alive = false;
     };
