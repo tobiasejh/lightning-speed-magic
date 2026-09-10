@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 
 import { MappingToolbar, type StageView } from "@/components/MappingToolbar";
 import { MediaEditor } from "@/components/MediaEditor";
+import { PairBanner } from "@/components/PairBanner";
 import { ProjectsMenu } from "@/components/ProjectsMenu";
 import { RoomView } from "@/components/RoomView";
 import { ShowPanel } from "@/components/ShowPanel";
