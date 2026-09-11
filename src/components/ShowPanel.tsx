@@ -67,7 +67,9 @@ type Props = {
   onAddOutput: () => void;
   onRemoveOutput: (id: string) => void;
   onOpenOutput: (id: string) => void;
+  onPatchPath: (path: SoundPath) => void;
 };
+
 
 const fmt = (seconds: number) =>
   `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
