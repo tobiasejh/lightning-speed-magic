@@ -133,11 +133,13 @@ export function RoomView(p: Props) {
       target.setPointerCapture(event.pointerId);
       const move = (ev: PointerEvent) => {
         const dragged = toPoint(ev.clientX, ev.clientY, rect);
+        // the curve passes through the dragged point at its midpoint
         const control = {
-          x: ends.a.x + (dragged.x - (ends.a.x + ends.b.x) / 2) * 2 - (ends.b.x - ends.a.x) / 2,
-          y: ends.a.y + (dragged.y - (ends.a.y + ends.b.y) / 2) * 2 - (ends.b.y - ends.a.y) / 2,
+          x: 2 * dragged.x - (ends.a.x + ends.b.x) / 2,
+          y: 2 * dragged.y - (ends.a.y + ends.b.y) / 2,
           z: dragged.z,
         };
+
         p.onSavePath(
           patchSegment(path, segmentId, {
             curve: Math.max(-2, Math.min(2, curveFromControl(ends.a, ends.b, control))),
