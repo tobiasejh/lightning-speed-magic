@@ -1041,7 +1041,7 @@ function Studio() {
       void ch.unsubscribe();
       remoteRef.current = null;
     };
-  }, [pairCode]);
+  }, [pairCode, surfaces]);
 
   useEffect(() => {
     if (!remoteConnected) return;

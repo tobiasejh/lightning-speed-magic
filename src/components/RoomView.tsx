@@ -29,6 +29,7 @@ export function RoomView(p: Props) {
   const oy = (h - size) / 2;
   const [mode, setMode] = useState<CaptureMode>(null);
   const [draft, setDraft] = useState<SoundPathPoint[]>([]);
+  const draftRef = useRef<SoundPathPoint[]>([]);
   const captureStart = useRef(0);
   const selectedSound = p.sounds.find((sound) => sound.id === p.selectedId) ?? null;
   const selectedPath = p.paths.find((path) => path.id === p.activePathId) ?? null;
@@ -44,19 +45,21 @@ export function RoomView(p: Props) {
   });
 
   const finishCapture = () => {
-    if (!selectedSound || draft.length < 2) {
+    const captured = draftRef.current;
+    if (!selectedSound || captured.length < 2) {
+      draftRef.current = [];
       setDraft([]);
       setMode(null);
       return;
     }
-    const rawDuration = draft[draft.length - 1]?.time ?? 0;
+    const rawDuration = captured[captured.length - 1]?.time ?? 0;
     const duration =
-      mode === "draw" ? Math.max(2, draft.length * 0.12) : Math.max(0.25, rawDuration);
-    const points = draft.map((point, index) => ({
+      mode === "draw" ? Math.max(2, captured.length * 0.12) : Math.max(0.25, rawDuration);
+    const points = captured.map((point, index) => ({
       ...point,
       time:
         mode === "draw"
-          ? (index / Math.max(1, draft.length - 1)) * duration
+          ? (index / Math.max(1, captured.length - 1)) * duration
           : Math.min(duration, point.time),
     }));
     const existing = p.paths.find((path) => path.soundId === selectedSound.id);
@@ -69,13 +72,16 @@ export function RoomView(p: Props) {
     };
     p.onSavePath(path);
     p.onSelectPath(path.id);
+    draftRef.current = [];
     setDraft([]);
     setMode(null);
   };
 
   const startCapture = (nextMode: Exclude<CaptureMode, null>) => {
     if (!selectedSound) return;
-    setDraft([{ time: 0, position: selectedSound.position }]);
+    const initial = [{ time: 0, position: selectedSound.position }];
+    draftRef.current = initial;
+    setDraft(initial);
     captureStart.current = performance.now();
     setMode(nextMode);
   };
@@ -93,7 +99,12 @@ export function RoomView(p: Props) {
         const last = current[current.length - 1];
         if (last && Math.hypot(last.position.x - position.x, last.position.y - position.y) < 0.012)
           return current;
-        return [...current, { time: (performance.now() - captureStart.current) / 1000, position }];
+        const next = [
+          ...current,
+          { time: (performance.now() - captureStart.current) / 1000, position },
+        ];
+        draftRef.current = next;
+        return next;
       });
     };
     const up = () => {

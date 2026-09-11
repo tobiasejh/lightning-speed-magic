@@ -28,3 +28,11 @@
 - [x] Multiple projector windows with per-surface assignment
 - [x] Tablet/phone remote mapping via pairing code
 - [x] Verified in browser
+
+## v5
+- [x] Keep mapped surfaces inside the display area on desktop, remote, and project load
+- [x] Draw and record timed sound movement paths in the room editor
+- [x] Replace scene cues with visual, audio, and movement tracks
+- [x] Drag, trim, snap, zoom, mute, solo, and scrub timeline clips
+- [x] Synchronize timeline video, sound, movement, and projector output
+- [ ] Verify the complete v5 workflow in the browser
