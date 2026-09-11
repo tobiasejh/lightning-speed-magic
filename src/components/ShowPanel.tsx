@@ -133,7 +133,8 @@ function AutomationLane(props: {
       const prevTime = baseChain[index - 1]?.time ?? 0;
       const nextTime = baseChain[index + 1]?.time;
       const startX = rect.left + toX(startTime);
-      const startY = rect.top + toY(base.nodes.find((item) => item.id === nodeId)?.position[axis] ?? 0);
+      const startY =
+        rect.top + toY(base.nodes.find((item) => item.id === nodeId)?.position[axis] ?? 0);
       let latest = base;
 
       const move = (ev: PointerEvent) => {
@@ -166,7 +167,6 @@ function AutomationLane(props: {
       target.addEventListener("pointermove", move);
       target.addEventListener("pointerup", up);
     };
-
 
   return (
     <div className="space-y-1">
