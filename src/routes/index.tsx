@@ -233,7 +233,12 @@ function Studio() {
   const outputWins = useRef(new Map<string, Window>());
   const showStart = useRef(0);
   const activeTimelineClips = useRef(new Set<string>());
+  const surfacesRef = useRef(surfaces);
   const [stage, setStage] = useState({ w: 0, h: 0 });
+
+  useEffect(() => {
+    surfacesRef.current = surfaces;
+  }, [surfaces]);
 
   const selected = surfaces.find((s) => s.id === selectedId) ?? surfaces[0] ?? null;
 
@@ -1024,7 +1029,7 @@ function Studio() {
     const ch = supabase.channel(`prism-${pairCode}`, { config: { broadcast: { self: false } } });
     ch.on("broadcast", { event: "join" }, () => {
       setRemoteConnected(true);
-      ch.send({ type: "broadcast", event: "state", payload: { surfaces } });
+      ch.send({ type: "broadcast", event: "state", payload: { surfaces: surfacesRef.current } });
     })
       .on("broadcast", { event: "corners" }, ({ payload }) => {
         const { id, corners } = payload as { id: string; corners: Pt[] };
@@ -1041,7 +1046,7 @@ function Studio() {
       void ch.unsubscribe();
       remoteRef.current = null;
     };
-  }, [pairCode, surfaces]);
+  }, [pairCode]);
 
   useEffect(() => {
     if (!remoteConnected) return;

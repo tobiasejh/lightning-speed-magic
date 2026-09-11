@@ -501,7 +501,6 @@ export class SpatialEngine {
       void g.el.play();
     } else if (g.buffer && g.splitter) {
       if (g.bufSrc) return;
-      g.bufSrc?.stop();
       const src = this.ctx.createBufferSource();
       src.buffer = g.buffer;
       src.loop = g.item.loop;
