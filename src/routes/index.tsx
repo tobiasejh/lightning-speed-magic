@@ -41,7 +41,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { MicAnalyser, silentLevels, type AudioLevelProvider } from "@/lib/audio";
 import { SpatialEngine } from "@/lib/audio-engine";
 import { snapCandidates, snapPoint } from "@/lib/snap";
-import { activeClipsAt, positionOnPath, timelineLength } from "@/lib/timeline";
+import { activeClipsAt, positionOnPath, timelineLength, upgradePath } from "@/lib/timeline";
 import {
   LAST_KEY,
   deleteProject,
