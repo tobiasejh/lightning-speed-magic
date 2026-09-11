@@ -418,7 +418,34 @@ export function ShowPanel(p: Props) {
                         className="absolute inset-y-0 left-0 w-1.5 cursor-ew-resize bg-foreground/30"
                       />
                       <span className="block truncate font-medium">{clip.name}</span>
+                      {clip.kind === "movement" &&
+                        (() => {
+                          const path = p.paths.find((item) => item.id === clip.pathId);
+                          if (!path?.segments.length) return null;
+                          const boxWidth = Math.max(30, clip.duration * pixelsPerSecond);
+                          return (
+                            <svg
+                              className="pointer-events-none absolute inset-x-0 bottom-0 h-4 opacity-80"
+                              width={boxWidth}
+                              height={16}
+                            >
+                              <polyline
+                                points={axisOutline(
+                                  path,
+                                  "x",
+                                  (time) =>
+                                    (Math.min(time, clip.duration) / Math.max(0.001, clip.duration)) *
+                                    boxWidth,
+                                  (value) => ((value + 1) / 2) * 16,
+                                )}
+                                className="fill-none stroke-foreground"
+                                strokeWidth={1.5}
+                              />
+                            </svg>
+                          );
+                        })()}
                       <span className="tabular-nums opacity-70">{clip.duration.toFixed(1)}s</span>
+
                       <div
                         onPointerDown={resizeClip(clip, "end")}
                         className="absolute inset-y-0 right-0 w-1.5 cursor-ew-resize bg-foreground/30"
