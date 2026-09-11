@@ -317,7 +317,7 @@ export function ShowPanel(p: Props) {
               <span className="min-w-0 flex-1 truncate text-xs">{clip.name}</span>
               {clip.kind === "visual" && (
                 <Select
-                  value={clip.surfaceId}
+                  value={clip.surfaceId ?? ""}
                   onValueChange={(surfaceId) => patchClip(clip.id, { surfaceId })}
                 >
                   <SelectTrigger className="h-7 w-32">
