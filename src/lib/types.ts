@@ -65,6 +65,40 @@ export type TimelineCue = {
   loop?: boolean | undefined;
 };
 
+export type TimelineTrackKind = "visual" | "audio" | "movement";
+
+export type TimelineTrack = {
+  id: string;
+  name: string;
+  kind: TimelineTrackKind;
+  muted: boolean;
+  solo: boolean;
+};
+
+export type TimelineClip = {
+  id: string;
+  trackId: string;
+  kind: TimelineTrackKind;
+  name: string;
+  start: number;
+  duration: number;
+  inPoint: number;
+  mediaId?: string | undefined;
+  soundId?: string | undefined;
+  surfaceId?: string | undefined;
+  pathId?: string | undefined;
+};
+
+export type SoundPathPoint = { time: number; position: Vec3 };
+
+export type SoundPath = {
+  id: string;
+  name: string;
+  soundId: string;
+  duration: number;
+  points: SoundPathPoint[];
+};
+
 export type Globals = {
   speed: number;
   intensity: number;
@@ -117,6 +151,7 @@ export type RoomConfig = {
 };
 
 export type Project = {
+  version?: number;
   id: string;
   name: string;
   updatedAt: number;
@@ -129,6 +164,9 @@ export type Project = {
   outputs?: OutputScreen[];
   scenes?: Scene[];
   timeline?: TimelineCue[];
+  timelineTracks?: TimelineTrack[];
+  timelineClips?: TimelineClip[];
+  soundPaths?: SoundPath[];
 };
 
 /** Live media elements, kept outside React state. */

@@ -416,6 +416,13 @@ export class SpatialEngine {
     else if (!item.playing && wasPlaying) this.pauseSound(item.id);
   }
 
+  setPosition(id: string, position: Vec3) {
+    const g = this.sources.get(id);
+    if (!g) return;
+    g.item = { ...g.item, position };
+    this.updateSource(g);
+  }
+
   private anySolo() {
     for (const s of this.sources.values()) if (s.item.solo) return true;
     return false;
@@ -493,7 +500,7 @@ export class SpatialEngine {
     if (g.el) {
       void g.el.play();
     } else if (g.buffer && g.splitter) {
-      g.bufSrc?.stop();
+      if (g.bufSrc) return;
       const src = this.ctx.createBufferSource();
       src.buffer = g.buffer;
       src.loop = g.item.loop;
