@@ -39,3 +39,14 @@
 - [x] Drag, trim, snap, zoom, mute, solo, and scrub timeline clips
 - [x] Synchronize timeline video, sound, movement, and projector output
 - [x] Verify the complete v5 workflow in the browser
+
+## v6
+
+- [x] Click to place automation points in the room editor, drag to reposition
+- [x] Ctrl+click two points to link them with a straight line
+- [x] Shift+drag a line to curve it, more or less by drag distance
+- [x] Alt+click a line to split it into two lines that keep the curve
+- [x] Per-line duration in milliseconds
+- [x] X/Y automation lanes for movement clips in the timeline
+- [x] Room editor and timeline share the same path data
+- [x] Verified in browser

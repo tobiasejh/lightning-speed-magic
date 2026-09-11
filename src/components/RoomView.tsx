@@ -1,8 +1,23 @@
-import { Circle, Ear, PenLine, Speaker, Square, Trash2 } from "lucide-react";
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { Ear, Link2, Speaker, Trash2 } from "lucide-react";
+import { useState, type PointerEvent as ReactPointerEvent } from "react";
 
 import { Button } from "@/components/ui/button";
-import type { RoomConfig, SoundItem, SoundPath, SoundPathPoint, Vec3 } from "@/lib/types";
+import { Input } from "@/components/ui/input";
+import {
+  addPathNode,
+  closestOnSegment,
+  connectNodes,
+  curveFromControl,
+  emptyPath,
+  moveNode,
+  patchSegment,
+  removeNode,
+  removeSegment,
+  segmentEnds,
+  splitSegment,
+  withDuration,
+} from "@/lib/timeline";
+import type { RoomConfig, SoundItem, SoundPath, Vec3 } from "@/lib/types";
 
 type Props = {
   stage: { w: number; h: number };
@@ -20,20 +35,19 @@ type Props = {
   onSelectPath: (id: string | null) => void;
 };
 
-type CaptureMode = "draw" | "record" | null;
-
 export function RoomView(p: Props) {
   const { w, h } = p.stage;
   const size = Math.min(w, h) * 0.9;
   const ox = (w - size) / 2;
   const oy = (h - size) / 2;
-  const [mode, setMode] = useState<CaptureMode>(null);
-  const [draft, setDraft] = useState<SoundPathPoint[]>([]);
-  const draftRef = useRef<SoundPathPoint[]>([]);
-  const captureStart = useRef(0);
+  const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
+  const [linkFromId, setLinkFromId] = useState<string | null>(null);
   const selectedSound = p.sounds.find((sound) => sound.id === p.selectedId) ?? null;
-  const selectedPath = p.paths.find((path) => path.id === p.activePathId) ?? null;
-  const shownPath = draft.length ? draft : (selectedPath?.points ?? []);
+  const path = selectedSound
+    ? (p.paths.find((item) => item.soundId === selectedSound.id) ?? null)
+    : null;
+  const selectedSegment = path?.segments.find((s) => s.id === selectedSegmentId) ?? null;
+
   const toPx = (v: Vec3) => ({
     left: ox + ((v.x + 1) / 2) * size,
     top: oy + ((v.y + 1) / 2) * size,
@@ -43,88 +57,110 @@ export function RoomView(p: Props) {
     y: Math.max(-1, Math.min(1, ((clientY - rect.top - oy) / size) * 2 - 1)),
     z: selectedSound?.position.z ?? 0,
   });
+  const rootRect = (el: HTMLElement) =>
+    (el.closest("[data-room-root]") ?? el).getBoundingClientRect();
 
-  const finishCapture = () => {
-    const captured = draftRef.current;
-    if (!selectedSound || captured.length < 2) {
-      draftRef.current = [];
-      setDraft([]);
-      setMode(null);
+  const save = (next: SoundPath) => {
+    p.onSavePath(withDuration(next));
+    p.onSelectPath(next.id);
+  };
+
+  const ensurePath = (): SoundPath | null => {
+    if (!selectedSound) return null;
+    return (
+      path ?? emptyPath(`path${Date.now()}`, `${selectedSound.name} movement`, selectedSound.id)
+    );
+  };
+
+  /** Click on empty room space: place a new automation point. */
+  const placePoint = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey)
+      return;
+    const base = ensurePath();
+    if (!base) return;
+    const position = toPoint(event.clientX, event.clientY, rootRect(event.currentTarget));
+    save(addPathNode(base, position, true));
+    setLinkFromId(null);
+  };
+
+  const dragNode = (nodeId: string) => (event: ReactPointerEvent<SVGCircleElement>) => {
+    if (!path) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.ctrlKey || event.metaKey) {
+      if (linkFromId && linkFromId !== nodeId) {
+        save(connectNodes(path, linkFromId, nodeId));
+        setLinkFromId(null);
+      } else setLinkFromId(nodeId);
       return;
     }
-    const rawDuration = captured[captured.length - 1]?.time ?? 0;
-    const duration =
-      mode === "draw" ? Math.max(2, captured.length * 0.12) : Math.max(0.25, rawDuration);
-    const points = captured.map((point, index) => ({
-      ...point,
-      time:
-        mode === "draw"
-          ? (index / Math.max(1, captured.length - 1)) * duration
-          : Math.min(duration, point.time),
-    }));
-    const existing = p.paths.find((path) => path.soundId === selectedSound.id);
-    const path: SoundPath = {
-      id: existing?.id ?? `path${Date.now()}`,
-      name: `${selectedSound.name} movement`,
-      soundId: selectedSound.id,
-      duration,
-      points,
-    };
-    p.onSavePath(path);
-    p.onSelectPath(path.id);
-    draftRef.current = [];
-    setDraft([]);
-    setMode(null);
-  };
-
-  const startCapture = (nextMode: Exclude<CaptureMode, null>) => {
-    if (!selectedSound) return;
-    const initial = [{ time: 0, position: selectedSound.position }];
-    draftRef.current = initial;
-    setDraft(initial);
-    captureStart.current = performance.now();
-    setMode(nextMode);
-  };
-
-  const capture = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (!mode || !selectedSound) return;
-    e.preventDefault();
-    const target = e.currentTarget;
-    const rect = target.getBoundingClientRect();
-    target.setPointerCapture(e.pointerId);
-    const add = (ev: PointerEvent) => {
-      const position = toPoint(ev.clientX, ev.clientY, rect);
-      p.onMoveSound(selectedSound.id, position);
-      setDraft((current) => {
-        const last = current[current.length - 1];
-        if (last && Math.hypot(last.position.x - position.x, last.position.y - position.y) < 0.012)
-          return current;
-        const next = [
-          ...current,
-          { time: (performance.now() - captureStart.current) / 1000, position },
-        ];
-        draftRef.current = next;
-        return next;
-      });
+    const target = event.currentTarget;
+    const rect = rootRect(target as unknown as HTMLElement);
+    target.setPointerCapture(event.pointerId);
+    let latest = path;
+    const move = (ev: PointerEvent) => {
+      latest = moveNode(latest, nodeId, toPoint(ev.clientX, ev.clientY, rect));
+      p.onSavePath(latest);
     };
     const up = () => {
-      target.removeEventListener("pointermove", add);
+      target.removeEventListener("pointermove", move);
       target.removeEventListener("pointerup", up);
-      setTimeout(finishCapture, 0);
+      p.onSavePath(withDuration(latest));
     };
-    add(e.nativeEvent);
-    target.addEventListener("pointermove", add);
+    target.addEventListener("pointermove", move);
+    target.addEventListener("pointerup", up);
+  };
+
+  const segmentPointerDown = (segmentId: string) => (event: ReactPointerEvent<SVGPathElement>) => {
+    if (!path) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = rootRect(event.currentTarget as unknown as HTMLElement);
+    const point = toPoint(event.clientX, event.clientY, rect);
+    const segment = path.segments.find((s) => s.id === segmentId);
+    if (!segment) return;
+    if (event.altKey) {
+      const { t } = closestOnSegment(path, segment, point);
+      save(splitSegment(path, segmentId, t));
+      return;
+    }
+    setSelectedSegmentId(segmentId);
+    p.onSelectPath(path.id);
+    if (!event.shiftKey) return;
+    // shift + drag bends the line
+    const ends = segmentEnds(path, segment);
+    if (!ends) return;
+    const target = event.currentTarget;
+    target.setPointerCapture(event.pointerId);
+    const move = (ev: PointerEvent) => {
+      const dragged = toPoint(ev.clientX, ev.clientY, rect);
+      // the curve passes through the dragged point at its midpoint
+      const control = {
+        x: 2 * dragged.x - (ends.a.x + ends.b.x) / 2,
+        y: 2 * dragged.y - (ends.a.y + ends.b.y) / 2,
+        z: dragged.z,
+      };
+
+      p.onSavePath(
+        patchSegment(path, segmentId, {
+          curve: Math.max(-2, Math.min(2, curveFromControl(ends.a, ends.b, control))),
+        }),
+      );
+    };
+    const up = () => {
+      target.removeEventListener("pointermove", move);
+      target.removeEventListener("pointerup", up);
+    };
+    target.addEventListener("pointermove", move);
     target.addEventListener("pointerup", up);
   };
 
   const drag =
     (cb: (pos: { x: number; y: number }) => void) => (e: ReactPointerEvent<HTMLElement>) => {
-      if (mode) return;
       e.preventDefault();
       e.stopPropagation();
       const target = e.currentTarget;
-      const parent = target.parentElement?.getBoundingClientRect();
-      if (!parent) return;
+      const parent = rootRect(target);
       target.setPointerCapture(e.pointerId);
       const move = (ev: PointerEvent) => cb(toPoint(ev.clientX, ev.clientY, parent));
       const up = () => {
@@ -139,9 +175,10 @@ export function RoomView(p: Props) {
     `${(Math.hypot(v.x - p.room.listener.x, v.y - p.room.listener.y) * (p.room.size / 2)).toFixed(1)} m`;
 
   return (
-    <div className="absolute inset-0 select-none" onPointerDown={capture}>
+    <div className="absolute inset-0 select-none" data-room-root>
       <div
-        className={`absolute overflow-hidden rounded-lg border border-border/70 bg-card/30 ${mode ? "cursor-crosshair touch-none" : ""}`}
+        onPointerDown={placePoint}
+        className="absolute overflow-hidden rounded-lg border border-border/70 bg-card/30 touch-none"
         style={{
           left: ox,
           top: oy,
@@ -160,67 +197,132 @@ export function RoomView(p: Props) {
         </span>
       </div>
 
-      <div className="absolute left-3 top-3 z-50 flex items-center gap-1 rounded-md border border-border bg-background/90 p-1 shadow-lg">
-        <Button
-          size="sm"
-          variant={mode === "draw" ? "default" : "ghost"}
-          disabled={!selectedSound}
-          onClick={(event) => {
-            event.stopPropagation();
-            startCapture("draw");
-          }}
-        >
-          <PenLine /> Draw
-        </Button>
-        <Button
-          size="sm"
-          variant={mode === "record" ? "destructive" : "ghost"}
-          disabled={!selectedSound}
-          onClick={(event) => {
-            event.stopPropagation();
-            startCapture("record");
-          }}
-        >
-          {mode === "record" ? <Square /> : <Circle />} Record
-        </Button>
-        {selectedPath && !mode && (
-          <Button
-            size="icon"
-            variant="ghost"
-            aria-label="Delete movement path"
-            onClick={(event) => {
-              event.stopPropagation();
-              p.onDeletePath(selectedPath.id);
-            }}
-          >
-            <Trash2 />
-          </Button>
+      <div className="absolute left-3 top-3 z-50 max-w-[22rem] space-y-1 rounded-md border border-border bg-background/90 p-2 text-[11px] shadow-lg">
+        <p className="font-semibold uppercase text-muted-foreground">
+          {selectedSound ? `${selectedSound.name} automation` : "Select a sound"}
+        </p>
+        <p className="text-muted-foreground">
+          Click to add a point · Ctrl+click two points to link · Shift+drag a line to curve ·
+          Alt+click a line to split
+        </p>
+        {linkFromId && (
+          <p className="flex items-center gap-1 text-primary">
+            <Link2 className="size-3" /> Ctrl+click another point to connect
+          </p>
+        )}
+        {selectedSegment && (
+          <div className="flex items-center gap-1.5 pt-1">
+            <span className="text-muted-foreground">Line</span>
+            <Input
+              type="number"
+              min={20}
+              step={50}
+              className="h-7 w-24"
+              value={Math.round(selectedSegment.durationMs)}
+              onChange={(event) =>
+                path &&
+                p.onSavePath(
+                  withDuration(
+                    patchSegment(path, selectedSegment.id, {
+                      durationMs: Math.max(20, Number(event.target.value) || 20),
+                    }),
+                  ),
+                )
+              }
+            />
+            <span className="text-muted-foreground">ms</span>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="size-7"
+              aria-label="Delete automation line"
+              onClick={() => {
+                if (!path) return;
+                p.onSavePath(removeSegment(path, selectedSegment.id));
+                setSelectedSegmentId(null);
+              }}
+            >
+              <Trash2 />
+            </Button>
+          </div>
+        )}
+        {path && (
+          <div className="flex items-center gap-2 pt-1">
+            <span className="text-muted-foreground tabular-nums">
+              {path.nodes.length} points · {path.duration.toFixed(2)}s
+            </span>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 px-2"
+              onClick={() => {
+                p.onDeletePath(path.id);
+                setSelectedSegmentId(null);
+                setLinkFromId(null);
+              }}
+            >
+              Clear
+            </Button>
+          </div>
         )}
       </div>
 
-      {shownPath.length > 1 && (
-        <svg className="pointer-events-none absolute inset-0 size-full">
-          <polyline
-            points={shownPath
-              .map((point) => {
-                const px = toPx(point.position);
-                return `${px.left},${px.top}`;
-              })
-              .join(" ")}
-            className="fill-none stroke-primary"
-            strokeWidth="3"
-            strokeDasharray={mode ? "5 5" : undefined}
-          />
-          {shownPath.map((point, index) => {
-            const px = toPx(point.position);
+      {path && (
+        <svg className="absolute inset-0 size-full" style={{ pointerEvents: "none" }}>
+          {path.segments.map((segment) => {
+            const ends = segmentEnds(path, segment);
+            if (!ends) return null;
+            const a = toPx(ends.a);
+            const b = toPx(ends.b);
+            const c = toPx(ends.control);
+            const d = `M ${a.left} ${a.top} Q ${c.left} ${c.top} ${b.left} ${b.top}`;
             return (
-              <circle
-                key={`${point.time}-${index}`}
-                cx={px.left}
-                cy={px.top}
-                r={index === 0 || index === shownPath.length - 1 ? 5 : 2}
-                className="fill-primary"
-              />
+              <g key={segment.id} style={{ pointerEvents: "stroke" }}>
+                <path
+                  d={d}
+                  stroke="transparent"
+                  strokeWidth={14}
+                  fill="none"
+                  className="cursor-pointer"
+                  onPointerDown={segmentPointerDown(segment.id)}
+                />
+                <path
+                  d={d}
+                  fill="none"
+                  strokeWidth={selectedSegmentId === segment.id ? 4 : 2.5}
+                  className={
+                    selectedSegmentId === segment.id ? "stroke-foreground" : "stroke-primary"
+                  }
+                  style={{ pointerEvents: "none" }}
+                />
+              </g>
+            );
+          })}
+          {path.nodes.map((node, index) => {
+            const px = toPx(node.position);
+            return (
+              <g key={node.id} style={{ pointerEvents: "all" }}>
+                <circle
+                  cx={px.left}
+                  cy={px.top}
+                  r={7}
+                  className={`cursor-grab ${linkFromId === node.id ? "fill-foreground" : "fill-primary"}`}
+                  onPointerDown={dragNode(node.id)}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    p.onSavePath(removeNode(path, node.id));
+                  }}
+                />
+                <text
+                  x={px.left}
+                  y={px.top - 10}
+                  textAnchor="middle"
+                  className="fill-muted-foreground text-[9px]"
+                  style={{ pointerEvents: "none" }}
+                >
+                  {index + 1}
+                </text>
+              </g>
             );
           })}
         </svg>

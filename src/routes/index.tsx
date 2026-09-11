@@ -41,7 +41,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { MicAnalyser, silentLevels, type AudioLevelProvider } from "@/lib/audio";
 import { SpatialEngine } from "@/lib/audio-engine";
 import { snapCandidates, snapPoint } from "@/lib/snap";
-import { activeClipsAt, positionOnPath, timelineLength } from "@/lib/timeline";
+import { activeClipsAt, positionOnPath, timelineLength, upgradePath } from "@/lib/timeline";
 import {
   LAST_KEY,
   deleteProject,
@@ -355,7 +355,7 @@ function Studio() {
         project.timelineTracks?.length ? project.timelineTracks : defaultTimelineTracks(),
       );
       setTimelineClips(project.timelineClips ?? []);
-      setSoundPaths(project.soundPaths ?? []);
+      setSoundPaths((project.soundPaths ?? []).map(upgradePath));
       setShowPlaying(false);
       setShowTime(0);
       mediaMeta.clear();
@@ -1194,6 +1194,13 @@ function Studio() {
               );
             }}
             onOpenOutput={openOutput}
+            onPatchPath={(path) =>
+              setSoundPaths((prev) =>
+                prev.some((item) => item.id === path.id)
+                  ? prev.map((item) => (item.id === path.id ? path : item))
+                  : [...prev, path],
+              )
+            }
           />
         </section>
 

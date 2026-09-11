@@ -1,4 +1,5 @@
 import {
+  Activity,
   Copy,
   ExternalLink,
   Pause,
@@ -11,7 +12,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import type { PointerEvent as ReactPointerEvent } from "react";
+import { useState, type PointerEvent as ReactPointerEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -21,7 +22,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { snapTimelineTime, timelineLength } from "@/lib/timeline";
+import {
+  moveNode,
+  pathChain,
+  pathDuration,
+  patchSegment,
+  sampleSegment,
+  snapTimelineTime,
+  timelineLength,
+  withDuration,
+} from "@/lib/timeline";
 import type {
   MediaItem,
   OutputScreen,
@@ -57,6 +67,7 @@ type Props = {
   onAddOutput: () => void;
   onRemoveOutput: (id: string) => void;
   onOpenOutput: (id: string) => void;
+  onPatchPath: (path: SoundPath) => void;
 };
 
 const fmt = (seconds: number) =>
@@ -67,7 +78,126 @@ const colors: Record<TimelineTrackKind, string> = {
   movement: "bg-chart-2/70",
 };
 
+const LANE_HEIGHT = 44;
+
+/** Sampled outline of one axis of a movement path, in lane pixels. */
+const axisOutline = (
+  path: SoundPath,
+  axis: "x" | "y",
+  toX: (time: number) => number,
+  toY: (value: number) => number,
+) => {
+  const points: string[] = [];
+  let time = 0;
+  for (const segment of path.segments) {
+    const length = Math.max(1, segment.durationMs) / 1000;
+    for (let i = 0; i <= 8; i++) {
+      const sample = sampleSegment(path, segment, i / 8);
+      if (!sample) continue;
+      points.push(`${toX(time + (i / 8) * length)},${toY(sample[axis])}`);
+    }
+    time += length;
+  }
+  return points.join(" ");
+};
+
+function AutomationLane(props: {
+  path: SoundPath;
+  clip: TimelineClip;
+  axis: "x" | "y";
+  pixelsPerSecond: number;
+  onPatchPath: (path: SoundPath) => void;
+}) {
+  const { path, clip, axis } = props;
+  const width = Math.max(140, clip.duration * props.pixelsPerSecond);
+  const span = Math.max(0.001, clip.duration);
+  const toX = (time: number) => (Math.max(0, Math.min(span, time)) / span) * width;
+  const toY = (value: number) => ((value + 1) / 2) * LANE_HEIGHT;
+  const fromY = (py: number) => Math.max(-1, Math.min(1, (py / LANE_HEIGHT) * 2 - 1));
+  const chain = pathChain(path);
+
+  const dragHandle =
+    (index: number, nodeId: string) => (event: ReactPointerEvent<SVGCircleElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const target = event.currentTarget;
+      const rect = (target.ownerSVGElement ?? target).getBoundingClientRect();
+      target.setPointerCapture(event.pointerId);
+      let latest = path;
+      const move = (ev: PointerEvent) => {
+        const node = latest.nodes.find((item) => item.id === nodeId);
+        if (!node) return;
+        const value = fromY(ev.clientY - rect.top);
+        latest = moveNode(latest, nodeId, { ...node.position, [axis]: value });
+        // horizontal drag retimes the lines around this point
+        const wanted = ((ev.clientX - rect.left) / width) * span;
+        const previous = latest.segments[index - 1];
+        const next = latest.segments[index];
+        const delta = wanted - (chain[index]?.time ?? 0);
+        if (previous && Math.abs(delta) > 0.005) {
+          const durationMs = Math.max(20, previous.durationMs + delta * 1000);
+          latest = patchSegment(latest, previous.id, { durationMs });
+          if (next)
+            latest = patchSegment(latest, next.id, {
+              durationMs: Math.max(20, next.durationMs - (durationMs - previous.durationMs)),
+            });
+        }
+        props.onPatchPath(latest);
+      };
+      const up = () => {
+        target.removeEventListener("pointermove", move);
+        target.removeEventListener("pointerup", up);
+        props.onPatchPath(withDuration(latest));
+      };
+      target.addEventListener("pointermove", move);
+      target.addEventListener("pointerup", up);
+    };
+
+  return (
+    <div className="space-y-1">
+      <span className="text-[10px] uppercase text-muted-foreground">
+        {axis === "x" ? "Position X (left ↔ right)" : "Position Y (front ↔ back)"}
+      </span>
+      <svg
+        width={width}
+        height={LANE_HEIGHT}
+        className="rounded border border-border bg-muted/20"
+        style={{ touchAction: "none" }}
+      >
+        <line
+          x1={0}
+          x2={width}
+          y1={LANE_HEIGHT / 2}
+          y2={LANE_HEIGHT / 2}
+          className="stroke-border"
+        />
+        <polyline
+          points={axisOutline(path, axis, toX, toY)}
+          className="fill-none stroke-primary"
+          strokeWidth={2}
+        />
+        {chain.map((entry, index) => {
+          const node = path.nodes.find((item) => item.id === entry.nodeId);
+          if (!node) return null;
+          return (
+            <circle
+              key={`${entry.nodeId}-${index}`}
+              cx={toX(entry.time)}
+              cy={toY(node.position[axis])}
+              r={5}
+              className="cursor-grab fill-foreground"
+              onPointerDown={dragHandle(index, entry.nodeId)}
+            />
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
 export function ShowPanel(p: Props) {
+  const [showLanes, setShowLanes] = useState(true);
+
   const length = timelineLength(p.clips);
   const pixelsPerSecond = 18 * p.zoom;
   const width = Math.max(640, length * pixelsPerSecond);
@@ -287,7 +417,35 @@ export function ShowPanel(p: Props) {
                         className="absolute inset-y-0 left-0 w-1.5 cursor-ew-resize bg-foreground/30"
                       />
                       <span className="block truncate font-medium">{clip.name}</span>
+                      {clip.kind === "movement" &&
+                        (() => {
+                          const path = p.paths.find((item) => item.id === clip.pathId);
+                          if (!path?.segments.length) return null;
+                          const boxWidth = Math.max(30, clip.duration * pixelsPerSecond);
+                          return (
+                            <svg
+                              className="pointer-events-none absolute inset-x-0 bottom-0 h-4 opacity-80"
+                              width={boxWidth}
+                              height={16}
+                            >
+                              <polyline
+                                points={axisOutline(
+                                  path,
+                                  "x",
+                                  (time) =>
+                                    (Math.min(time, clip.duration) /
+                                      Math.max(0.001, clip.duration)) *
+                                    boxWidth,
+                                  (value) => ((value + 1) / 2) * 16,
+                                )}
+                                className="fill-none stroke-foreground"
+                                strokeWidth={1.5}
+                              />
+                            </svg>
+                          );
+                        })()}
                       <span className="tabular-nums opacity-70">{clip.duration.toFixed(1)}s</span>
+
                       <div
                         onPointerDown={resizeClip(clip, "end")}
                         className="absolute inset-y-0 right-0 w-1.5 cursor-ew-resize bg-foreground/30"
@@ -312,53 +470,86 @@ export function ShowPanel(p: Props) {
         (() => {
           const clip = p.clips.find((item) => item.id === p.selectedClipId);
           if (!clip) return null;
+          const movementPath =
+            clip.kind === "movement" ? p.paths.find((item) => item.id === clip.pathId) : undefined;
           return (
-            <div className="flex flex-wrap items-center gap-2 rounded-md border border-border p-2">
-              <span className="min-w-0 flex-1 truncate text-xs">{clip.name}</span>
-              {clip.kind === "visual" && (
-                <Select
-                  value={clip.surfaceId ?? ""}
-                  onValueChange={(surfaceId) => patchClip(clip.id, { surfaceId })}
+            <div className="space-y-2 rounded-md border border-border p-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="min-w-0 flex-1 truncate text-xs">{clip.name}</span>
+                {clip.kind === "visual" && (
+                  <Select
+                    value={clip.surfaceId ?? ""}
+                    onValueChange={(surfaceId) => patchClip(clip.id, { surfaceId })}
+                  >
+                    <SelectTrigger className="h-7 w-32">
+                      <SelectValue placeholder="Surface" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {p.surfaces.map((surface) => (
+                        <SelectItem key={surface.id} value={surface.id}>
+                          {surface.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                {movementPath && (
+                  <Button
+                    size="sm"
+                    variant={showLanes ? "default" : "secondary"}
+                    onClick={() => setShowLanes(!showLanes)}
+                  >
+                    <Activity />
+                    Automation
+                  </Button>
+                )}
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  aria-label="Duplicate clip"
+                  onClick={() =>
+                    p.onClips([
+                      ...p.clips,
+                      { ...clip, id: `clip${Date.now()}`, start: clip.start + clip.duration },
+                    ])
+                  }
                 >
-                  <SelectTrigger className="h-7 w-32">
-                    <SelectValue placeholder="Surface" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {p.surfaces.map((surface) => (
-                      <SelectItem key={surface.id} value={surface.id}>
-                        {surface.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  <Copy />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  aria-label="Delete clip"
+                  onClick={() => {
+                    p.onClips(p.clips.filter((item) => item.id !== clip.id));
+                    p.onSelectClip(null);
+                  }}
+                >
+                  <Trash2 />
+                </Button>
+              </div>
+              {movementPath && showLanes && (
+                <div className="space-y-2 overflow-x-auto">
+                  <p className="text-[10px] text-muted-foreground">
+                    Drag a point up/down to move the sound, sideways to retime it. Edits also update
+                    the room editor. Movement length {pathDuration(movementPath).toFixed(2)}s.
+                  </p>
+                  {(["x", "y"] as const).map((axis) => (
+                    <AutomationLane
+                      key={axis}
+                      axis={axis}
+                      path={movementPath}
+                      clip={clip}
+                      pixelsPerSecond={pixelsPerSecond}
+                      onPatchPath={p.onPatchPath}
+                    />
+                  ))}
+                </div>
               )}
-              <Button
-                size="icon"
-                variant="ghost"
-                aria-label="Duplicate clip"
-                onClick={() =>
-                  p.onClips([
-                    ...p.clips,
-                    { ...clip, id: `clip${Date.now()}`, start: clip.start + clip.duration },
-                  ])
-                }
-              >
-                <Copy />
-              </Button>
-              <Button
-                size="icon"
-                variant="ghost"
-                aria-label="Delete clip"
-                onClick={() => {
-                  p.onClips(p.clips.filter((item) => item.id !== clip.id));
-                  p.onSelectClip(null);
-                }}
-              >
-                <Trash2 />
-              </Button>
             </div>
           );
         })()}
+
       {p.tracks.map((track) => (
         <div key={`add-${track.id}`} className="flex items-center gap-2">
           <span className="w-28 truncate text-[10px] text-muted-foreground">

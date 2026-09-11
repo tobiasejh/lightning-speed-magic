@@ -91,12 +91,28 @@ export type TimelineClip = {
 
 export type SoundPathPoint = { time: number; position: Vec3 };
 
+/** An automation point placed in the room editor. */
+export type PathNode = { id: string; position: Vec3 };
+
+/** A line between two automation points. `curve` bends it (0 = straight). */
+export type PathSegment = {
+  id: string;
+  fromId: string;
+  toId: string;
+  durationMs: number;
+  curve: number;
+};
+
 export type SoundPath = {
   id: string;
   name: string;
   soundId: string;
+  /** total length in seconds, derived from segment durations */
   duration: number;
-  points: SoundPathPoint[];
+  nodes: PathNode[];
+  segments: PathSegment[];
+  /** legacy drawn/recorded samples, kept so old projects still load */
+  points?: SoundPathPoint[] | undefined;
 };
 
 export type Globals = {
