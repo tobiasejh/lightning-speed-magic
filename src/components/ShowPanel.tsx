@@ -470,53 +470,86 @@ export function ShowPanel(p: Props) {
         (() => {
           const clip = p.clips.find((item) => item.id === p.selectedClipId);
           if (!clip) return null;
+          const movementPath =
+            clip.kind === "movement" ? p.paths.find((item) => item.id === clip.pathId) : undefined;
           return (
-            <div className="flex flex-wrap items-center gap-2 rounded-md border border-border p-2">
-              <span className="min-w-0 flex-1 truncate text-xs">{clip.name}</span>
-              {clip.kind === "visual" && (
-                <Select
-                  value={clip.surfaceId ?? ""}
-                  onValueChange={(surfaceId) => patchClip(clip.id, { surfaceId })}
+            <div className="space-y-2 rounded-md border border-border p-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="min-w-0 flex-1 truncate text-xs">{clip.name}</span>
+                {clip.kind === "visual" && (
+                  <Select
+                    value={clip.surfaceId ?? ""}
+                    onValueChange={(surfaceId) => patchClip(clip.id, { surfaceId })}
+                  >
+                    <SelectTrigger className="h-7 w-32">
+                      <SelectValue placeholder="Surface" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {p.surfaces.map((surface) => (
+                        <SelectItem key={surface.id} value={surface.id}>
+                          {surface.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                {movementPath && (
+                  <Button
+                    size="sm"
+                    variant={showLanes ? "default" : "secondary"}
+                    onClick={() => setShowLanes(!showLanes)}
+                  >
+                    <Activity />
+                    Automation
+                  </Button>
+                )}
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  aria-label="Duplicate clip"
+                  onClick={() =>
+                    p.onClips([
+                      ...p.clips,
+                      { ...clip, id: `clip${Date.now()}`, start: clip.start + clip.duration },
+                    ])
+                  }
                 >
-                  <SelectTrigger className="h-7 w-32">
-                    <SelectValue placeholder="Surface" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {p.surfaces.map((surface) => (
-                      <SelectItem key={surface.id} value={surface.id}>
-                        {surface.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  <Copy />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  aria-label="Delete clip"
+                  onClick={() => {
+                    p.onClips(p.clips.filter((item) => item.id !== clip.id));
+                    p.onSelectClip(null);
+                  }}
+                >
+                  <Trash2 />
+                </Button>
+              </div>
+              {movementPath && showLanes && (
+                <div className="space-y-2 overflow-x-auto">
+                  <p className="text-[10px] text-muted-foreground">
+                    Drag a point up/down to move the sound, sideways to retime it. Edits also update
+                    the room editor. Movement length {pathDuration(movementPath).toFixed(2)}s.
+                  </p>
+                  {(["x", "y"] as const).map((axis) => (
+                    <AutomationLane
+                      key={axis}
+                      axis={axis}
+                      path={movementPath}
+                      clip={clip}
+                      pixelsPerSecond={pixelsPerSecond}
+                      onPatchPath={p.onPatchPath}
+                    />
+                  ))}
+                </div>
               )}
-              <Button
-                size="icon"
-                variant="ghost"
-                aria-label="Duplicate clip"
-                onClick={() =>
-                  p.onClips([
-                    ...p.clips,
-                    { ...clip, id: `clip${Date.now()}`, start: clip.start + clip.duration },
-                  ])
-                }
-              >
-                <Copy />
-              </Button>
-              <Button
-                size="icon"
-                variant="ghost"
-                aria-label="Delete clip"
-                onClick={() => {
-                  p.onClips(p.clips.filter((item) => item.id !== clip.id));
-                  p.onSelectClip(null);
-                }}
-              >
-                <Trash2 />
-              </Button>
             </div>
           );
         })()}
+
       {p.tracks.map((track) => (
         <div key={`add-${track.id}`} className="flex items-center gap-2">
           <span className="w-28 truncate text-[10px] text-muted-foreground">
