@@ -1123,40 +1123,26 @@ function Studio() {
         <section className="space-y-3">
           <SectionTitle>Show</SectionTitle>
           <ShowPanel
-            scenes={scenes}
-            cues={cues}
+            tracks={timelineTracks}
+            clips={timelineClips}
+            media={media}
+            sounds={sounds}
+            paths={soundPaths}
+            surfaces={surfaces}
             outputs={outputs}
             openOutputs={openOutputs}
             playing={showPlaying}
             time={showTime}
-            activeSceneId={activeSceneId}
-            onSaveScene={saveScene}
-            onRecall={recallScene}
-            onRenameScene={(id, name) =>
-              setScenes((prev) => prev.map((sc) => (sc.id === id ? { ...sc, name } : sc)))
-            }
-            onDeleteScene={(id) => {
-              setScenes((prev) => prev.filter((sc) => sc.id !== id));
-              setCues((prev) => prev.filter((c) => c.sceneId !== id));
-            }}
-            onAddCue={(sceneId) =>
-              setCues((prev) => [
-                ...prev,
-                {
-                  id: `c${Date.now()}`,
-                  sceneId,
-                  start: prev.length ? Math.max(...prev.map((c) => c.start)) + 10 : 0,
-                  transition: "fade",
-                  fade: 1,
-                },
-              ])
-            }
-            onPatchCue={(id, next) =>
-              setCues((prev) => prev.map((c) => (c.id === id ? { ...c, ...next } : c)))
-            }
-            onRemoveCue={(id) => setCues((prev) => prev.filter((c) => c.id !== id))}
+            zoom={timelineZoom}
+            selectedClipId={selectedClipId}
+            onTracks={setTimelineTracks}
+            onClips={setTimelineClips}
+            onSelectClip={setSelectedClipId}
             onPlay={runShow}
-            onStop={() => setShowPlaying(false)}
+            onPause={pauseShow}
+            onStop={stopShow}
+            onSeek={seekShow}
+            onZoom={setTimelineZoom}
             onAddOutput={() =>
               setOutputs((prev) => [
                 ...prev,
@@ -1540,7 +1526,7 @@ function Studio() {
           <PairBanner code={pairCode} connected={remoteConnected} onStop={startPairing} />
         )}
         <div className="relative min-h-0 flex-1 bg-black" ref={stageRef}>
-          {surfaces.map((s, i) => (
+          {displaySurfaces.map((s, i) => (
             <SurfaceLayer
               key={s.id}
               surface={s}
@@ -1558,9 +1544,11 @@ function Studio() {
           {view === "room" && !fullscreen && (
             <RoomView
               stage={stage}
-              sounds={sounds}
+              sounds={displaySounds}
               selectedId={selectedSoundId}
               room={room}
+              paths={soundPaths}
+              activePathId={activePathId}
               onSelect={setSelectedSoundId}
               onMoveSound={(id, position) => patchSound(id, { position })}
               onMoveListener={(listener) => patchRoom({ listener })}
@@ -1569,6 +1557,19 @@ function Studio() {
                   speakers: room.speakers.map((sp) => (sp.id === id ? { ...sp, position } : sp)),
                 })
               }
+              onSavePath={(path) =>
+                setSoundPaths((prev) =>
+                  prev.some((item) => item.id === path.id)
+                    ? prev.map((item) => (item.id === path.id ? path : item))
+                    : [...prev, path],
+                )
+              }
+              onDeletePath={(id) => {
+                setSoundPaths((prev) => prev.filter((path) => path.id !== id));
+                setTimelineClips((prev) => prev.filter((clip) => clip.pathId !== id));
+                setActivePathId(null);
+              }}
+              onSelectPath={setActivePathId}
             />
           )}
           {view === "editor" && !fullscreen && (

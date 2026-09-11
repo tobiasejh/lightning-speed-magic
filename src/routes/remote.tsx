@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { snapCandidates, snapPoint } from "@/lib/snap";
 import type { Surface } from "@/lib/types";
-import type { Pt } from "@/lib/warp";
+import { clampCorners, clampPoint, type Pt } from "@/lib/warp";
 
 export const Route = createFileRoute("/remote")({
   component: Remote,
@@ -60,7 +60,7 @@ function Remote() {
     const ch = supabase.channel(`prism-${key}`, { config: { broadcast: { self: false } } });
     ch.on("broadcast", { event: "state" }, ({ payload }) => {
       const next = (payload as { surfaces: Surface[] }).surfaces ?? [];
-      setSurfaces(next);
+      setSurfaces(next.map((surface) => ({ ...surface, corners: clampCorners(surface.corners) })));
       setSelectedId((cur) => cur ?? next[0]?.id ?? null);
     }).subscribe((status) => {
       if (status === "SUBSCRIBED") {
@@ -87,8 +87,8 @@ function Remote() {
     const candidates = snapCandidates(surfaces, selected.id);
     const move = (ev: PointerEvent) => {
       let p: Pt = {
-        x: Math.min(1.4, Math.max(-0.4, (ev.clientX - rect.left) / rect.width)),
-        y: Math.min(1.4, Math.max(-0.4, (ev.clientY - rect.top) / rect.height)),
+        x: (ev.clientX - rect.left) / rect.width,
+        y: (ev.clientY - rect.top) / rect.height,
       };
       if (snapRef.current) {
         const res = snapPoint(p, candidates, { w: rect.width, h: rect.height }, 18);
@@ -97,6 +97,7 @@ function Remote() {
       } else {
         setSnapFlash(null);
       }
+      p = clampPoint(p);
       setSurfaces((prev) =>
         prev.map((s) => {
           if (s.id !== selected.id) return s;
@@ -173,7 +174,7 @@ function Remote() {
       </div>
       <div
         ref={padRef}
-        className="relative m-2 flex-1 touch-none rounded-lg border border-border bg-black"
+            className="relative m-2 flex-1 touch-none overflow-hidden rounded-lg border border-border bg-black"
       >
         <svg className="pointer-events-none absolute inset-0 size-full">
           {surfaces.map((s) => (
