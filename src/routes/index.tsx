@@ -1201,7 +1201,6 @@ function Studio() {
                   : [...prev, path],
               )
             }
-
           />
         </section>
 

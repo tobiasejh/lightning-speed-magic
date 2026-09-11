@@ -47,7 +47,7 @@ export const upgradePath = (path: SoundPath): SoundPath => {
       id: uid("s"),
       fromId: nodes[i - 1]!.id,
       toId: nodes[i]!.id,
-      durationMs: Math.max(50, Math.round(((keep[i]!.time - keep[i - 1]!.time) || 0.5) * 1000)),
+      durationMs: Math.max(50, Math.round((keep[i]!.time - keep[i - 1]!.time || 0.5) * 1000)),
       curve: 0,
     });
   }
@@ -109,7 +109,11 @@ export const segmentEnds = (path: SoundPath, segment: PathSegment) => {
   const a = nodeById(path, segment.fromId);
   const b = nodeById(path, segment.toId);
   if (!a || !b) return null;
-  return { a: a.position, b: b.position, control: segmentControl(a.position, b.position, segment.curve) };
+  return {
+    a: a.position,
+    b: b.position,
+    control: segmentControl(a.position, b.position, segment.curve),
+  };
 };
 
 export const sampleSegment = (path: SoundPath, segment: PathSegment, t: number): Vec3 | null => {
@@ -190,7 +194,10 @@ export const connectNodes = (path: SoundPath, fromId: string, toId: string): Sou
   if ((path.segments ?? []).some((s) => s.fromId === fromId && s.toId === toId)) return path;
   return withDuration({
     ...path,
-    segments: [...(path.segments ?? []), { id: uid("s"), fromId, toId, durationMs: 1000, curve: 0 }],
+    segments: [
+      ...(path.segments ?? []),
+      { id: uid("s"), fromId, toId, durationMs: 1000, curve: 0 },
+    ],
   });
 };
 

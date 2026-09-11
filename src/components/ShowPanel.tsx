@@ -1,7 +1,6 @@
 import {
   Activity,
   Copy,
-
   ExternalLink,
   Pause,
   Play,
@@ -44,7 +43,6 @@ import type {
   TimelineTrackKind,
 } from "@/lib/types";
 
-
 type Props = {
   tracks: TimelineTrack[];
   clips: TimelineClip[];
@@ -71,7 +69,6 @@ type Props = {
   onOpenOutput: (id: string) => void;
   onPatchPath: (path: SoundPath) => void;
 };
-
 
 const fmt = (seconds: number) =>
   `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
@@ -436,7 +433,8 @@ export function ShowPanel(p: Props) {
                                   path,
                                   "x",
                                   (time) =>
-                                    (Math.min(time, clip.duration) / Math.max(0.001, clip.duration)) *
+                                    (Math.min(time, clip.duration) /
+                                      Math.max(0.001, clip.duration)) *
                                     boxWidth,
                                   (value) => ((value + 1) / 2) * 16,
                                 )}

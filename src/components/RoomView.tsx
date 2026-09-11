@@ -67,7 +67,9 @@ export function RoomView(p: Props) {
 
   const ensurePath = (): SoundPath | null => {
     if (!selectedSound) return null;
-    return path ?? emptyPath(`path${Date.now()}`, `${selectedSound.name} movement`, selectedSound.id);
+    return (
+      path ?? emptyPath(`path${Date.now()}`, `${selectedSound.name} movement`, selectedSound.id)
+    );
   };
 
   /** Click on empty room space: place a new automation point. */
@@ -109,50 +111,49 @@ export function RoomView(p: Props) {
     target.addEventListener("pointerup", up);
   };
 
-  const segmentPointerDown =
-    (segmentId: string) => (event: ReactPointerEvent<SVGPathElement>) => {
-      if (!path) return;
-      event.preventDefault();
-      event.stopPropagation();
-      const rect = rootRect(event.currentTarget as unknown as HTMLElement);
-      const point = toPoint(event.clientX, event.clientY, rect);
-      const segment = path.segments.find((s) => s.id === segmentId);
-      if (!segment) return;
-      if (event.altKey) {
-        const { t } = closestOnSegment(path, segment, point);
-        save(splitSegment(path, segmentId, t));
-        return;
-      }
-      setSelectedSegmentId(segmentId);
-      p.onSelectPath(path.id);
-      if (!event.shiftKey) return;
-      // shift + drag bends the line
-      const ends = segmentEnds(path, segment);
-      if (!ends) return;
-      const target = event.currentTarget;
-      target.setPointerCapture(event.pointerId);
-      const move = (ev: PointerEvent) => {
-        const dragged = toPoint(ev.clientX, ev.clientY, rect);
-        // the curve passes through the dragged point at its midpoint
-        const control = {
-          x: 2 * dragged.x - (ends.a.x + ends.b.x) / 2,
-          y: 2 * dragged.y - (ends.a.y + ends.b.y) / 2,
-          z: dragged.z,
-        };
+  const segmentPointerDown = (segmentId: string) => (event: ReactPointerEvent<SVGPathElement>) => {
+    if (!path) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = rootRect(event.currentTarget as unknown as HTMLElement);
+    const point = toPoint(event.clientX, event.clientY, rect);
+    const segment = path.segments.find((s) => s.id === segmentId);
+    if (!segment) return;
+    if (event.altKey) {
+      const { t } = closestOnSegment(path, segment, point);
+      save(splitSegment(path, segmentId, t));
+      return;
+    }
+    setSelectedSegmentId(segmentId);
+    p.onSelectPath(path.id);
+    if (!event.shiftKey) return;
+    // shift + drag bends the line
+    const ends = segmentEnds(path, segment);
+    if (!ends) return;
+    const target = event.currentTarget;
+    target.setPointerCapture(event.pointerId);
+    const move = (ev: PointerEvent) => {
+      const dragged = toPoint(ev.clientX, ev.clientY, rect);
+      // the curve passes through the dragged point at its midpoint
+      const control = {
+        x: 2 * dragged.x - (ends.a.x + ends.b.x) / 2,
+        y: 2 * dragged.y - (ends.a.y + ends.b.y) / 2,
+        z: dragged.z,
+      };
 
-        p.onSavePath(
-          patchSegment(path, segmentId, {
-            curve: Math.max(-2, Math.min(2, curveFromControl(ends.a, ends.b, control))),
-          }),
-        );
-      };
-      const up = () => {
-        target.removeEventListener("pointermove", move);
-        target.removeEventListener("pointerup", up);
-      };
-      target.addEventListener("pointermove", move);
-      target.addEventListener("pointerup", up);
+      p.onSavePath(
+        patchSegment(path, segmentId, {
+          curve: Math.max(-2, Math.min(2, curveFromControl(ends.a, ends.b, control))),
+        }),
+      );
     };
+    const up = () => {
+      target.removeEventListener("pointermove", move);
+      target.removeEventListener("pointerup", up);
+    };
+    target.addEventListener("pointermove", move);
+    target.addEventListener("pointerup", up);
+  };
 
   const drag =
     (cb: (pos: { x: number; y: number }) => void) => (e: ReactPointerEvent<HTMLElement>) => {

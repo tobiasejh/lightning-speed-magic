@@ -115,7 +115,6 @@ export type SoundPath = {
   points?: SoundPathPoint[] | undefined;
 };
 
-
 export type Globals = {
   speed: number;
   intensity: number;
