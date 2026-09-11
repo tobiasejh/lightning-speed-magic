@@ -74,6 +74,7 @@ import {
   type TimelineCue,
   type TimelineClip,
   type TimelineTrack,
+  type Vec3,
 } from "@/lib/types";
 import { clampCorners, clampPoint, defaultCorners, type Pt } from "@/lib/warp";
 import { visuals } from "@/lib/visuals";
@@ -203,6 +204,7 @@ function Studio() {
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [activePathId, setActivePathId] = useState<string | null>(null);
   const [timelineZoom, setTimelineZoom] = useState(1);
+  const [movementPositions, setMovementPositions] = useState<Record<string, Vec3>>({});
   const [showPlaying, setShowPlaying] = useState(false);
   const [showTime, setShowTime] = useState(0);
   const [activeSceneId, setActiveSceneId] = useState<string | null>(null);
@@ -230,9 +232,36 @@ function Studio() {
   const channelRef = useRef<BroadcastChannel | null>(null);
   const outputWins = useRef(new Map<string, Window>());
   const showStart = useRef(0);
+  const activeTimelineClips = useRef(new Set<string>());
   const [stage, setStage] = useState({ w: 0, h: 0 });
 
   const selected = surfaces.find((s) => s.id === selectedId) ?? surfaces[0] ?? null;
+
+  const timelineSurfaceSources = useMemo(() => {
+    const result = new Map<string, string>();
+    for (const clip of activeClipsAt(timelineTracks, timelineClips, showTime)) {
+      if (clip.kind === "visual" && clip.surfaceId && clip.mediaId) {
+        result.set(clip.surfaceId, `media:${clip.mediaId}`);
+      }
+    }
+    return result;
+  }, [showTime, timelineClips, timelineTracks]);
+
+  const displaySurfaces = useMemo(
+    () => surfaces.map((surface) => {
+      const source = timelineSurfaceSources.get(surface.id);
+      return source ? { ...surface, source } : surface;
+    }),
+    [surfaces, timelineSurfaceSources],
+  );
+
+  const displaySounds = useMemo(
+    () => sounds.map((sound) => {
+      const position = movementPositions[sound.id];
+      return position ? { ...sound, position } : sound;
+    }),
+    [movementPositions, sounds],
+  );
 
   const engine = useCallback(() => {
     if (!engineRef.current) {
@@ -457,12 +486,12 @@ function Studio() {
   // ----- output windows -----
   const snapshot = useMemo<OutputSnapshot>(
     () => ({
-      surfaces,
+      surfaces: displaySurfaces,
       globals,
       testPattern,
       media: media.map(({ url: _url, ...rest }) => rest),
     }),
-    [surfaces, globals, testPattern, media],
+    [displaySurfaces, globals, testPattern, media],
   );
 
   function sendMedia(ch: BroadcastChannel, items: MediaItem[]) {
@@ -532,7 +561,10 @@ function Studio() {
 
   // ----- mutators -----
   const patch = useCallback((id: string, next: Partial<Surface>) => {
-    setSurfaces((prev) => prev.map((s) => (s.id === id ? { ...s, ...next } : s)));
+    setSurfaces((prev) => prev.map((s) => {
+      if (s.id !== id) return s;
+      return { ...s, ...next, corners: next.corners ? clampCorners(next.corners) : s.corners };
+    }));
   }, []);
 
   const patchRoom = (next: Partial<RoomConfig>) => setRoom((r) => ({ ...r, ...next }));
@@ -576,6 +608,8 @@ function Studio() {
     engineRef.current?.removeSound(id);
     blobs.current.delete(id);
     setSounds((prev) => prev.filter((s) => s.id !== id));
+    setSoundPaths((prev) => prev.filter((path) => path.soundId !== id));
+    setTimelineClips((prev) => prev.filter((clip) => clip.soundId !== id));
     setSurfaces((prev) =>
       prev.map((s) => (s.audioSource === `sound:${id}` ? { ...s, audioSource: "master" } : s)),
     );
@@ -749,6 +783,7 @@ function Studio() {
     const rest = media.filter((m) => m.id !== id);
     if (item && !rest.some((m) => m.blobId === item.blobId)) blobs.current.delete(item.blobId);
     setMedia(rest);
+    setTimelineClips((prev) => prev.filter((clip) => clip.mediaId !== id));
     setEditMediaId((cur) => (cur === id ? (rest[0]?.id ?? null) : cur));
     setSurfaces((prev) =>
       prev.map((s) => (s.source === `media:${id}` ? { ...s, source: "visual:plasma" } : s)),
@@ -794,6 +829,7 @@ function Studio() {
         p = r.point;
         flash = r.snapped ? r.target : null;
       }
+      p = clampPoint(p);
       setSnapFlash(flash);
       setSurfaces((prev) =>
         prev.map((s) =>
@@ -825,7 +861,7 @@ function Studio() {
     return visuals.find((v) => v.id === source.slice(7))?.name ?? "Visual";
   };
 
-  // ----- scenes, timeline and projectors -----
+  // ----- legacy scenes and v5 timeline -----
   const saveScene = () => {
     const scene: Scene = {
       id: `sc${Date.now()}`,
@@ -850,39 +886,93 @@ function Studio() {
     [scenes],
   );
 
+  const applyTimelineAt = useCallback((time: number, playing: boolean) => {
+    const active = activeClipsAt(timelineTracks, timelineClips, time);
+    const nextIds = new Set(active.map((clip) => clip.id));
+    const activeSoundIds = new Set(active.filter((clip) => clip.kind === "audio").map((clip) => clip.soundId).filter((id): id is string => !!id));
+    const activeVideoIds = new Set(active.filter((clip) => clip.kind === "visual").map((clip) => clip.mediaId).filter((id): id is string => !!id));
+
+    for (const clip of active) {
+      const localTime = clip.inPoint + Math.max(0, time - clip.start);
+      if (clip.kind === "visual" && clip.mediaId) {
+        const element = mediaElements.get(clip.mediaId);
+        if (element instanceof HTMLVideoElement) {
+          if (!playing || !activeTimelineClips.current.has(clip.id) || Math.abs(element.currentTime - localTime) > 0.3) element.currentTime = localTime;
+          if (playing) void element.play().catch(() => undefined);
+          else element.pause();
+        }
+      } else if (clip.kind === "audio" && clip.soundId) {
+        if (!activeTimelineClips.current.has(clip.id) || !playing) engineRef.current?.seek(clip.soundId, localTime);
+        if (playing) engineRef.current?.playSound(clip.soundId);
+        else engineRef.current?.pauseSound(clip.soundId);
+      } else if (clip.kind === "movement" && clip.pathId && clip.soundId) {
+        const path = soundPaths.find((item) => item.id === clip.pathId);
+        if (!path) continue;
+        const position = positionOnPath(path, Math.max(0, time - clip.start));
+        if (position) {
+          engineRef.current?.setPosition(clip.soundId, position);
+          setMovementPositions((current) => {
+            const previous = current[clip.soundId!];
+            if (previous && Math.abs(previous.x - position.x) < 0.002 && Math.abs(previous.y - position.y) < 0.002) return current;
+            return { ...current, [clip.soundId!]: position };
+          });
+        }
+      }
+    }
+    for (const clip of timelineClips) {
+      if (nextIds.has(clip.id)) continue;
+      if (clip.kind === "audio" && clip.soundId && !activeSoundIds.has(clip.soundId)) engineRef.current?.pauseSound(clip.soundId);
+      if (clip.kind === "visual" && clip.mediaId && !activeVideoIds.has(clip.mediaId)) {
+        const element = mediaElements.get(clip.mediaId);
+        if (element instanceof HTMLVideoElement) element.pause();
+      }
+    }
+    activeTimelineClips.current = nextIds;
+  }, [soundPaths, timelineClips, timelineTracks]);
+
   const runShow = () => {
-    if (!cues.length) return;
-    showStart.current = performance.now();
-    setShowTime(0);
+    if (!timelineClips.length) return;
+    engine().resume();
+    showStart.current = performance.now() - showTime * 1000;
     setShowPlaying(true);
+  };
+
+  const pauseShow = () => {
+    setShowPlaying(false);
+    applyTimelineAt(showTime, false);
+  };
+
+  const stopShow = () => {
+    setShowPlaying(false);
+    setShowTime(0);
+    setMovementPositions({});
+    activeTimelineClips.current.clear();
+    applyTimelineAt(0, false);
+  };
+
+  const seekShow = (time: number) => {
+    const next = Math.max(0, Math.min(timelineLength(timelineClips), time));
+    setShowTime(next);
+    if (showPlaying) showStart.current = performance.now() - next * 1000;
+    applyTimelineAt(next, showPlaying);
   };
 
   useEffect(() => {
     if (!showPlaying) return;
     let raf = 0;
-    let fired = -1;
-    const sorted = [...cues].sort((a, b) => a.start - b.start);
     const tick = () => {
       raf = requestAnimationFrame(tick);
       const t = (performance.now() - showStart.current) / 1000;
       setShowTime(t);
-      const due = sorted.filter((c) => c.start <= t);
-      const idx = due.length - 1;
-      if (idx >= 0 && idx !== fired) {
-        fired = idx;
-        recallScene(due[idx]!.sceneId);
-      }
-      const last = sorted[sorted.length - 1];
-      if (last && t > last.start + 1 && !cues.some((c) => c.loop)) {
+      applyTimelineAt(t, true);
+      if (t >= timelineLength(timelineClips)) {
         setShowPlaying(false);
-      } else if (last && t > last.start + 1) {
-        showStart.current = performance.now();
-        fired = -1;
+        applyTimelineAt(t, false);
       }
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [showPlaying, cues, recallScene]);
+  }, [showPlaying, timelineClips, applyTimelineAt]);
 
   // ----- tablet pairing (relay only, files stay here) -----
   const remoteRef = useRef<RealtimeChannel | null>(null);
@@ -907,7 +997,7 @@ function Studio() {
     })
       .on("broadcast", { event: "corners" }, ({ payload }) => {
         const { id, corners } = payload as { id: string; corners: Pt[] };
-        setSurfaces((prev) => prev.map((s) => (s.id === id ? { ...s, corners } : s)));
+        setSurfaces((prev) => prev.map((s) => (s.id === id ? { ...s, corners: clampCorners(corners) } : s)));
       })
       .on("broadcast", { event: "select" }, ({ payload }) => {
         setSelectedId((payload as { id: string }).id);
