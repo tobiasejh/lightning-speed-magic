@@ -41,6 +41,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { MicAnalyser, silentLevels, type AudioLevelProvider } from "@/lib/audio";
 import { SpatialEngine } from "@/lib/audio-engine";
 import { snapCandidates, snapPoint } from "@/lib/snap";
+import { activeClipsAt, positionOnPath, timelineLength } from "@/lib/timeline";
 import {
   LAST_KEY,
   deleteProject,
@@ -66,12 +67,15 @@ import {
   type Project,
   type RoomConfig,
   type Scene,
+  type SoundPath,
   type SoundItem,
   type Surface,
   type TestPattern,
   type TimelineCue,
+  type TimelineClip,
+  type TimelineTrack,
 } from "@/lib/types";
-import { defaultCorners, type Pt } from "@/lib/warp";
+import { clampCorners, clampPoint, defaultCorners, type Pt } from "@/lib/warp";
 import { visuals } from "@/lib/visuals";
 
 const title = "Prism — Projection Mapping in Your Browser";
@@ -114,7 +118,14 @@ const upgradeSurface = (
 ): Surface => ({
   ...newSurface(1, s.source),
   ...s,
+  corners: clampCorners(s.corners),
 });
+
+const defaultTimelineTracks = (): TimelineTrack[] => [
+  { id: "track-visual-1", name: "Visual 1", kind: "visual", muted: false, solo: false },
+  { id: "track-audio-1", name: "Audio 1", kind: "audio", muted: false, solo: false },
+  { id: "track-movement-1", name: "Movement 1", kind: "movement", muted: false, solo: false },
+];
 
 function mountMedia(meta: Omit<MediaItem, "url">, blob: Blob) {
   const url = URL.createObjectURL(blob);
@@ -186,6 +197,12 @@ function Studio() {
   const [outputs, setOutputs] = useState<OutputScreen[]>(defaultOutputs);
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [cues, setCues] = useState<TimelineCue[]>([]);
+  const [timelineTracks, setTimelineTracks] = useState<TimelineTrack[]>(defaultTimelineTracks);
+  const [timelineClips, setTimelineClips] = useState<TimelineClip[]>([]);
+  const [soundPaths, setSoundPaths] = useState<SoundPath[]>([]);
+  const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
+  const [activePathId, setActivePathId] = useState<string | null>(null);
+  const [timelineZoom, setTimelineZoom] = useState(1);
   const [showPlaying, setShowPlaying] = useState(false);
   const [showTime, setShowTime] = useState(0);
   const [activeSceneId, setActiveSceneId] = useState<string | null>(null);
@@ -298,6 +315,11 @@ function Studio() {
       setOutputs(project.outputs?.length ? project.outputs : defaultOutputs());
       setScenes(project.scenes ?? []);
       setCues(project.timeline ?? []);
+      setTimelineTracks(project.timelineTracks?.length ? project.timelineTracks : defaultTimelineTracks());
+      setTimelineClips(project.timelineClips ?? []);
+      setSoundPaths(project.soundPaths ?? []);
+      setShowPlaying(false);
+      setShowTime(0);
       mediaMeta.clear();
       const items: MediaItem[] = [];
       for (const m of project.media) {
@@ -353,6 +375,7 @@ function Studio() {
 
   const buildProject = useCallback(
     (id = projectId, name = projectName): Project => ({
+      version: 5,
       id,
       name,
       updatedAt: Date.now(),
@@ -365,6 +388,9 @@ function Studio() {
       outputs,
       scenes,
       timeline: cues,
+      timelineTracks,
+      timelineClips,
+      soundPaths,
     }),
     [
       projectId,
@@ -378,6 +404,9 @@ function Studio() {
       outputs,
       scenes,
       cues,
+      timelineTracks,
+      timelineClips,
+      soundPaths,
     ],
   );
 
@@ -417,6 +446,9 @@ function Studio() {
       outputs: defaultOutputs(),
       scenes: [],
       timeline: [],
+      timelineTracks: defaultTimelineTracks(),
+      timelineClips: [],
+      soundPaths: [],
     };
     void applyProject(p, new Map());
     setSavedAt(null);
