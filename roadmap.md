@@ -10,6 +10,7 @@
 - [x] Verify in browser
 
 ## v2
+
 - [x] Sound library + playback + master transport
 - [x] Spatial ambisonic engine (order 1-3, binaural/speakers)
 - [x] Room view with draggable sound/listener/speaker icons
@@ -21,6 +22,7 @@
 - [x] Verified in browser
 
 ## v3
+
 - [x] Delete media from My media
 - [x] mp4 sound appears in Sound tab (mute/volume/spatial/solo)
 - [x] Media editor: crop a region, trim, save clips, link a separate soundtrack with offset
@@ -30,6 +32,7 @@
 - [x] Verified in browser
 
 ## v5
+
 - [x] Keep mapped surfaces inside the display area on desktop, remote, and project load
 - [x] Draw and record timed sound movement paths in the room editor
 - [x] Replace scene cues with visual, audio, and movement tracks
