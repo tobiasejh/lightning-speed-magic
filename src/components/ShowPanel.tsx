@@ -196,6 +196,8 @@ function AutomationLane(props: {
   );
 }
 
+export function ShowPanel(p: Props) {
+  const [showLanes, setShowLanes] = useState(true);
 
   const length = timelineLength(p.clips);
   const pixelsPerSecond = 18 * p.zoom;
