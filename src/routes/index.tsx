@@ -1194,6 +1194,14 @@ function Studio() {
               );
             }}
             onOpenOutput={openOutput}
+            onPatchPath={(path) =>
+              setSoundPaths((prev) =>
+                prev.some((item) => item.id === path.id)
+                  ? prev.map((item) => (item.id === path.id ? path : item))
+                  : [...prev, path],
+              )
+            }
+
           />
         </section>
 
