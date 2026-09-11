@@ -1,5 +1,14 @@
 export type Pt = { x: number; y: number };
 
+export const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
+
+export const clampPoint = (point: Pt): Pt => ({
+  x: clamp01(Number.isFinite(point.x) ? point.x : 0),
+  y: clamp01(Number.isFinite(point.y) ? point.y : 0),
+});
+
+export const clampCorners = (corners: Pt[]): Pt[] => corners.map(clampPoint);
+
 /** Solve A·x = b for an n×n system with partial pivoting. */
 function solve(A: number[][], b: number[]): number[] | null {
   const n = b.length;
