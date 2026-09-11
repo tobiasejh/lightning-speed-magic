@@ -38,4 +38,4 @@
 - [x] Replace scene cues with visual, audio, and movement tracks
 - [x] Drag, trim, snap, zoom, mute, solo, and scrub timeline clips
 - [x] Synchronize timeline video, sound, movement, and projector output
-- [ ] Verify the complete v5 workflow in the browser
+- [x] Verify the complete v5 workflow in the browser
