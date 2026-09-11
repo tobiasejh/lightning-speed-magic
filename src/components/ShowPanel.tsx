@@ -11,7 +11,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import type { PointerEvent as ReactPointerEvent } from "react";
+import { useState, type PointerEvent as ReactPointerEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -21,7 +21,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { snapTimelineTime, timelineLength } from "@/lib/timeline";
+import {
+  moveNode,
+  pathChain,
+  pathDuration,
+  patchSegment,
+  sampleSegment,
+  snapTimelineTime,
+  timelineLength,
+  withDuration,
+} from "@/lib/timeline";
 import type {
   MediaItem,
   OutputScreen,
@@ -32,6 +41,7 @@ import type {
   TimelineTrack,
   TimelineTrackKind,
 } from "@/lib/types";
+
 
 type Props = {
   tracks: TimelineTrack[];
