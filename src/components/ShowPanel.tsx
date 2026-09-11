@@ -79,7 +79,124 @@ const colors: Record<TimelineTrackKind, string> = {
   movement: "bg-chart-2/70",
 };
 
-export function ShowPanel(p: Props) {
+const LANE_HEIGHT = 44;
+
+/** Sampled outline of one axis of a movement path, in lane pixels. */
+const axisOutline = (
+  path: SoundPath,
+  axis: "x" | "y",
+  toX: (time: number) => number,
+  toY: (value: number) => number,
+) => {
+  const points: string[] = [];
+  let time = 0;
+  for (const segment of path.segments) {
+    const length = Math.max(1, segment.durationMs) / 1000;
+    for (let i = 0; i <= 8; i++) {
+      const sample = sampleSegment(path, segment, i / 8);
+      if (!sample) continue;
+      points.push(`${toX(time + (i / 8) * length)},${toY(sample[axis])}`);
+    }
+    time += length;
+  }
+  return points.join(" ");
+};
+
+function AutomationLane(props: {
+  path: SoundPath;
+  clip: TimelineClip;
+  axis: "x" | "y";
+  pixelsPerSecond: number;
+  onPatchPath: (path: SoundPath) => void;
+}) {
+  const { path, clip, axis } = props;
+  const width = Math.max(140, clip.duration * props.pixelsPerSecond);
+  const span = Math.max(0.001, clip.duration);
+  const toX = (time: number) => (Math.max(0, Math.min(span, time)) / span) * width;
+  const toY = (value: number) => ((value + 1) / 2) * LANE_HEIGHT;
+  const fromY = (py: number) => Math.max(-1, Math.min(1, (py / LANE_HEIGHT) * 2 - 1));
+  const chain = pathChain(path);
+
+  const dragHandle =
+    (index: number, nodeId: string) => (event: ReactPointerEvent<SVGCircleElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const target = event.currentTarget;
+      const rect = (target.ownerSVGElement ?? target).getBoundingClientRect();
+      target.setPointerCapture(event.pointerId);
+      let latest = path;
+      const move = (ev: PointerEvent) => {
+        const node = latest.nodes.find((item) => item.id === nodeId);
+        if (!node) return;
+        const value = fromY(ev.clientY - rect.top);
+        latest = moveNode(latest, nodeId, { ...node.position, [axis]: value });
+        // horizontal drag retimes the lines around this point
+        const wanted = ((ev.clientX - rect.left) / width) * span;
+        const previous = latest.segments[index - 1];
+        const next = latest.segments[index];
+        const delta = wanted - (chain[index]?.time ?? 0);
+        if (previous && Math.abs(delta) > 0.005) {
+          const durationMs = Math.max(20, previous.durationMs + delta * 1000);
+          latest = patchSegment(latest, previous.id, { durationMs });
+          if (next)
+            latest = patchSegment(latest, next.id, {
+              durationMs: Math.max(20, next.durationMs - (durationMs - previous.durationMs)),
+            });
+        }
+        props.onPatchPath(latest);
+      };
+      const up = () => {
+        target.removeEventListener("pointermove", move);
+        target.removeEventListener("pointerup", up);
+        props.onPatchPath(withDuration(latest));
+      };
+      target.addEventListener("pointermove", move);
+      target.addEventListener("pointerup", up);
+    };
+
+  return (
+    <div className="space-y-1">
+      <span className="text-[10px] uppercase text-muted-foreground">
+        {axis === "x" ? "Position X (left ↔ right)" : "Position Y (front ↔ back)"}
+      </span>
+      <svg
+        width={width}
+        height={LANE_HEIGHT}
+        className="rounded border border-border bg-muted/20"
+        style={{ touchAction: "none" }}
+      >
+        <line
+          x1={0}
+          x2={width}
+          y1={LANE_HEIGHT / 2}
+          y2={LANE_HEIGHT / 2}
+          className="stroke-border"
+        />
+        <polyline
+          points={axisOutline(path, axis, toX, toY)}
+          className="fill-none stroke-primary"
+          strokeWidth={2}
+        />
+        {chain.map((entry, index) => {
+          const node = path.nodes.find((item) => item.id === entry.nodeId);
+          if (!node) return null;
+          return (
+            <circle
+              key={`${entry.nodeId}-${index}`}
+              cx={toX(entry.time)}
+              cy={toY(node.position[axis])}
+              r={5}
+              className="cursor-grab fill-foreground"
+              onPointerDown={dragHandle(index, entry.nodeId)}
+            />
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+
   const length = timelineLength(p.clips);
   const pixelsPerSecond = 18 * p.zoom;
   const width = Math.max(640, length * pixelsPerSecond);
