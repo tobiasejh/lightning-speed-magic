@@ -121,28 +121,43 @@ function AutomationLane(props: {
       event.preventDefault();
       event.stopPropagation();
       const target = event.currentTarget;
-      const rect = (target.ownerSVGElement ?? target).getBoundingClientRect();
+      const svg = target.ownerSVGElement ?? target;
+      const rect = svg.getBoundingClientRect();
       target.setPointerCapture(event.pointerId);
-      let latest = path;
+      // snapshot: every move recomputes from this, so drags never accumulate
+      const base = path;
+      const baseChain = pathChain(base);
+      const previous = base.segments[index - 1];
+      const next = base.segments[index];
+      const startTime = baseChain[index]?.time ?? 0;
+      const prevTime = baseChain[index - 1]?.time ?? 0;
+      const nextTime = baseChain[index + 1]?.time;
+      const startX = rect.left + toX(startTime);
+      const startY =
+        rect.top + toY(base.nodes.find((item) => item.id === nodeId)?.position[axis] ?? 0);
+      let latest = base;
+
       const move = (ev: PointerEvent) => {
-        const node = latest.nodes.find((item) => item.id === nodeId);
+        const node = base.nodes.find((item) => item.id === nodeId);
         if (!node) return;
-        const value = fromY(ev.clientY - rect.top);
-        latest = moveNode(latest, nodeId, { ...node.position, [axis]: value });
-        // horizontal drag retimes the lines around this point
-        const wanted = ((ev.clientX - rect.left) / width) * span;
-        const previous = latest.segments[index - 1];
-        const next = latest.segments[index];
-        const delta = wanted - (chain[index]?.time ?? 0);
-        if (previous && Math.abs(delta) > 0.005) {
-          const durationMs = Math.max(20, previous.durationMs + delta * 1000);
-          latest = patchSegment(latest, previous.id, { durationMs });
-          if (next)
+        latest = moveNode(base, nodeId, {
+          ...node.position,
+          [axis]: fromY(ev.clientY - startY + toY(node.position[axis])),
+        });
+        // horizontal drag retimes the two lines around this point, in real seconds
+        if (previous) {
+          const raw = ((ev.clientX - startX) / width) * span + startTime;
+          const upper = nextTime !== undefined ? nextTime - 0.02 : span;
+          const wanted = Math.max(prevTime + 0.02, Math.min(upper, raw));
+          latest = patchSegment(latest, previous.id, {
+            durationMs: Math.max(20, Math.round((wanted - prevTime) * 1000)),
+          });
+          if (next && nextTime !== undefined)
             latest = patchSegment(latest, next.id, {
-              durationMs: Math.max(20, next.durationMs - (durationMs - previous.durationMs)),
+              durationMs: Math.max(20, Math.round((nextTime - wanted) * 1000)),
             });
         }
-        props.onPatchPath(latest);
+        props.onPatchPath(withDuration(latest));
       };
       const up = () => {
         target.removeEventListener("pointermove", move);
