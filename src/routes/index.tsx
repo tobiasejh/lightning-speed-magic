@@ -355,7 +355,7 @@ function Studio() {
         project.timelineTracks?.length ? project.timelineTracks : defaultTimelineTracks(),
       );
       setTimelineClips(project.timelineClips ?? []);
-      setSoundPaths(project.soundPaths ?? []);
+      setSoundPaths((project.soundPaths ?? []).map(upgradePath));
       setShowPlaying(false);
       setShowTime(0);
       mediaMeta.clear();
