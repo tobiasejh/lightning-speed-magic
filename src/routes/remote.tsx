@@ -174,7 +174,7 @@ function Remote() {
       </div>
       <div
         ref={padRef}
-            className="relative m-2 flex-1 touch-none overflow-hidden rounded-lg border border-border bg-black"
+        className="relative m-2 flex-1 touch-none overflow-hidden rounded-lg border border-border bg-black"
       >
         <svg className="pointer-events-none absolute inset-0 size-full">
           {surfaces.map((s) => (

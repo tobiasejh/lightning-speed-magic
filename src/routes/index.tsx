@@ -248,18 +248,20 @@ function Studio() {
   }, [showTime, timelineClips, timelineTracks]);
 
   const displaySurfaces = useMemo(
-    () => surfaces.map((surface) => {
-      const source = timelineSurfaceSources.get(surface.id);
-      return source ? { ...surface, source } : surface;
-    }),
+    () =>
+      surfaces.map((surface) => {
+        const source = timelineSurfaceSources.get(surface.id);
+        return source ? { ...surface, source } : surface;
+      }),
     [surfaces, timelineSurfaceSources],
   );
 
   const displaySounds = useMemo(
-    () => sounds.map((sound) => {
-      const position = movementPositions[sound.id];
-      return position ? { ...sound, position } : sound;
-    }),
+    () =>
+      sounds.map((sound) => {
+        const position = movementPositions[sound.id];
+        return position ? { ...sound, position } : sound;
+      }),
     [movementPositions, sounds],
   );
 
@@ -344,7 +346,9 @@ function Studio() {
       setOutputs(project.outputs?.length ? project.outputs : defaultOutputs());
       setScenes(project.scenes ?? []);
       setCues(project.timeline ?? []);
-      setTimelineTracks(project.timelineTracks?.length ? project.timelineTracks : defaultTimelineTracks());
+      setTimelineTracks(
+        project.timelineTracks?.length ? project.timelineTracks : defaultTimelineTracks(),
+      );
       setTimelineClips(project.timelineClips ?? []);
       setSoundPaths(project.soundPaths ?? []);
       setShowPlaying(false);
@@ -561,10 +565,12 @@ function Studio() {
 
   // ----- mutators -----
   const patch = useCallback((id: string, next: Partial<Surface>) => {
-    setSurfaces((prev) => prev.map((s) => {
-      if (s.id !== id) return s;
-      return { ...s, ...next, corners: next.corners ? clampCorners(next.corners) : s.corners };
-    }));
+    setSurfaces((prev) =>
+      prev.map((s) => {
+        if (s.id !== id) return s;
+        return { ...s, ...next, corners: next.corners ? clampCorners(next.corners) : s.corners };
+      }),
+    );
   }, []);
 
   const patchRoom = (next: Partial<RoomConfig>) => setRoom((r) => ({ ...r, ...next }));
@@ -886,49 +892,74 @@ function Studio() {
     [scenes],
   );
 
-  const applyTimelineAt = useCallback((time: number, playing: boolean) => {
-    const active = activeClipsAt(timelineTracks, timelineClips, time);
-    const nextIds = new Set(active.map((clip) => clip.id));
-    const activeSoundIds = new Set(active.filter((clip) => clip.kind === "audio").map((clip) => clip.soundId).filter((id): id is string => !!id));
-    const activeVideoIds = new Set(active.filter((clip) => clip.kind === "visual").map((clip) => clip.mediaId).filter((id): id is string => !!id));
+  const applyTimelineAt = useCallback(
+    (time: number, playing: boolean) => {
+      const active = activeClipsAt(timelineTracks, timelineClips, time);
+      const nextIds = new Set(active.map((clip) => clip.id));
+      const activeSoundIds = new Set(
+        active
+          .filter((clip) => clip.kind === "audio")
+          .map((clip) => clip.soundId)
+          .filter((id): id is string => !!id),
+      );
+      const activeVideoIds = new Set(
+        active
+          .filter((clip) => clip.kind === "visual")
+          .map((clip) => clip.mediaId)
+          .filter((id): id is string => !!id),
+      );
 
-    for (const clip of active) {
-      const localTime = clip.inPoint + Math.max(0, time - clip.start);
-      if (clip.kind === "visual" && clip.mediaId) {
-        const element = mediaElements.get(clip.mediaId);
-        if (element instanceof HTMLVideoElement) {
-          if (!playing || !activeTimelineClips.current.has(clip.id) || Math.abs(element.currentTime - localTime) > 0.3) element.currentTime = localTime;
-          if (playing) void element.play().catch(() => undefined);
-          else element.pause();
-        }
-      } else if (clip.kind === "audio" && clip.soundId) {
-        if (!activeTimelineClips.current.has(clip.id) || !playing) engineRef.current?.seek(clip.soundId, localTime);
-        if (playing) engineRef.current?.playSound(clip.soundId);
-        else engineRef.current?.pauseSound(clip.soundId);
-      } else if (clip.kind === "movement" && clip.pathId && clip.soundId) {
-        const path = soundPaths.find((item) => item.id === clip.pathId);
-        if (!path) continue;
-        const position = positionOnPath(path, Math.max(0, time - clip.start));
-        if (position) {
-          engineRef.current?.setPosition(clip.soundId, position);
-          setMovementPositions((current) => {
-            const previous = current[clip.soundId!];
-            if (previous && Math.abs(previous.x - position.x) < 0.002 && Math.abs(previous.y - position.y) < 0.002) return current;
-            return { ...current, [clip.soundId!]: position };
-          });
+      for (const clip of active) {
+        const localTime = clip.inPoint + Math.max(0, time - clip.start);
+        if (clip.kind === "visual" && clip.mediaId) {
+          const element = mediaElements.get(clip.mediaId);
+          if (element instanceof HTMLVideoElement) {
+            if (
+              !playing ||
+              !activeTimelineClips.current.has(clip.id) ||
+              Math.abs(element.currentTime - localTime) > 0.3
+            )
+              element.currentTime = localTime;
+            if (playing) void element.play().catch(() => undefined);
+            else element.pause();
+          }
+        } else if (clip.kind === "audio" && clip.soundId) {
+          if (!activeTimelineClips.current.has(clip.id) || !playing)
+            engineRef.current?.seek(clip.soundId, localTime);
+          if (playing) engineRef.current?.playSound(clip.soundId);
+          else engineRef.current?.pauseSound(clip.soundId);
+        } else if (clip.kind === "movement" && clip.pathId && clip.soundId) {
+          const path = soundPaths.find((item) => item.id === clip.pathId);
+          if (!path) continue;
+          const position = positionOnPath(path, Math.max(0, time - clip.start));
+          if (position) {
+            engineRef.current?.setPosition(clip.soundId, position);
+            setMovementPositions((current) => {
+              const previous = current[clip.soundId!];
+              if (
+                previous &&
+                Math.abs(previous.x - position.x) < 0.002 &&
+                Math.abs(previous.y - position.y) < 0.002
+              )
+                return current;
+              return { ...current, [clip.soundId!]: position };
+            });
+          }
         }
       }
-    }
-    for (const clip of timelineClips) {
-      if (nextIds.has(clip.id)) continue;
-      if (clip.kind === "audio" && clip.soundId && !activeSoundIds.has(clip.soundId)) engineRef.current?.pauseSound(clip.soundId);
-      if (clip.kind === "visual" && clip.mediaId && !activeVideoIds.has(clip.mediaId)) {
-        const element = mediaElements.get(clip.mediaId);
-        if (element instanceof HTMLVideoElement) element.pause();
+      for (const clip of timelineClips) {
+        if (nextIds.has(clip.id)) continue;
+        if (clip.kind === "audio" && clip.soundId && !activeSoundIds.has(clip.soundId))
+          engineRef.current?.pauseSound(clip.soundId);
+        if (clip.kind === "visual" && clip.mediaId && !activeVideoIds.has(clip.mediaId)) {
+          const element = mediaElements.get(clip.mediaId);
+          if (element instanceof HTMLVideoElement) element.pause();
+        }
       }
-    }
-    activeTimelineClips.current = nextIds;
-  }, [soundPaths, timelineClips, timelineTracks]);
+      activeTimelineClips.current = nextIds;
+    },
+    [soundPaths, timelineClips, timelineTracks],
+  );
 
   const runShow = () => {
     if (!timelineClips.length) return;
@@ -997,7 +1028,9 @@ function Studio() {
     })
       .on("broadcast", { event: "corners" }, ({ payload }) => {
         const { id, corners } = payload as { id: string; corners: Pt[] };
-        setSurfaces((prev) => prev.map((s) => (s.id === id ? { ...s, corners: clampCorners(corners) } : s)));
+        setSurfaces((prev) =>
+          prev.map((s) => (s.id === id ? { ...s, corners: clampCorners(corners) } : s)),
+        );
       })
       .on("broadcast", { event: "select" }, ({ payload }) => {
         setSelectedId((payload as { id: string }).id);

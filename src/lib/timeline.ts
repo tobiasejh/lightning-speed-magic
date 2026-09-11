@@ -4,7 +4,9 @@ export const timelineLength = (clips: TimelineClip[]) =>
   Math.max(30, ...clips.map((clip) => clip.start + clip.duration));
 
 export const activeClipsAt = (tracks: TimelineTrack[], clips: TimelineClip[], time: number) => {
-  const soloKinds = new Set<TimelineTrackKind>(tracks.filter((track) => track.solo).map((t) => t.kind));
+  const soloKinds = new Set<TimelineTrackKind>(
+    tracks.filter((track) => track.solo).map((t) => t.kind),
+  );
   const enabled = new Set(
     tracks
       .filter((track) => !track.muted && (!soloKinds.has(track.kind) || track.solo))
@@ -34,7 +36,12 @@ export const positionOnPath = (path: SoundPath, elapsed: number): Vec3 | null =>
 };
 
 export const snapTimelineTime = (time: number, clips: TimelineClip[], ignoreId?: string) => {
-  const candidates = [0, ...clips.flatMap((clip) => (clip.id === ignoreId ? [] : [clip.start, clip.start + clip.duration]))];
+  const candidates = [
+    0,
+    ...clips.flatMap((clip) =>
+      clip.id === ignoreId ? [] : [clip.start, clip.start + clip.duration],
+    ),
+  ];
   let result = Math.max(0, time);
   let distance = 0.16;
   for (const candidate of candidates) {

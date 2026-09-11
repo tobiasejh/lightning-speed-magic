@@ -32,8 +32,11 @@ export function RoomView(p: Props) {
   const captureStart = useRef(0);
   const selectedSound = p.sounds.find((sound) => sound.id === p.selectedId) ?? null;
   const selectedPath = p.paths.find((path) => path.id === p.activePathId) ?? null;
-  const shownPath = draft.length ? draft : selectedPath?.points ?? [];
-  const toPx = (v: Vec3) => ({ left: ox + ((v.x + 1) / 2) * size, top: oy + ((v.y + 1) / 2) * size });
+  const shownPath = draft.length ? draft : (selectedPath?.points ?? []);
+  const toPx = (v: Vec3) => ({
+    left: ox + ((v.x + 1) / 2) * size,
+    top: oy + ((v.y + 1) / 2) * size,
+  });
   const toPoint = (clientX: number, clientY: number, rect: DOMRect): Vec3 => ({
     x: Math.max(-1, Math.min(1, ((clientX - rect.left - ox) / size) * 2 - 1)),
     y: Math.max(-1, Math.min(1, ((clientY - rect.top - oy) / size) * 2 - 1)),
@@ -47,7 +50,8 @@ export function RoomView(p: Props) {
       return;
     }
     const rawDuration = draft[draft.length - 1]?.time ?? 0;
-    const duration = mode === "draw" ? Math.max(2, draft.length * 0.12) : Math.max(0.25, rawDuration);
+    const duration =
+      mode === "draw" ? Math.max(2, draft.length * 0.12) : Math.max(0.25, rawDuration);
     const points = draft.map((point, index) => ({
       ...point,
       time:
@@ -87,7 +91,8 @@ export function RoomView(p: Props) {
       p.onMoveSound(selectedSound.id, position);
       setDraft((current) => {
         const last = current[current.length - 1];
-        if (last && Math.hypot(last.position.x - position.x, last.position.y - position.y) < 0.012) return current;
+        if (last && Math.hypot(last.position.x - position.x, last.position.y - position.y) < 0.012)
+          return current;
         return [...current, { time: (performance.now() - captureStart.current) / 1000, position }];
       });
     };
@@ -136,19 +141,47 @@ export function RoomView(p: Props) {
           backgroundSize: `${size / 8}px ${size / 8}px`,
         }}
       >
-        <span className="absolute left-2 top-1 text-[10px] uppercase text-muted-foreground">Front</span>
-        <span className="absolute bottom-1 left-2 text-[10px] uppercase text-muted-foreground">Back · {p.room.size} m</span>
+        <span className="absolute left-2 top-1 text-[10px] uppercase text-muted-foreground">
+          Front
+        </span>
+        <span className="absolute bottom-1 left-2 text-[10px] uppercase text-muted-foreground">
+          Back · {p.room.size} m
+        </span>
       </div>
 
       <div className="absolute left-3 top-3 z-50 flex items-center gap-1 rounded-md border border-border bg-background/90 p-1 shadow-lg">
-        <Button size="sm" variant={mode === "draw" ? "default" : "ghost"} disabled={!selectedSound} onClick={(event) => { event.stopPropagation(); startCapture("draw"); }}>
+        <Button
+          size="sm"
+          variant={mode === "draw" ? "default" : "ghost"}
+          disabled={!selectedSound}
+          onClick={(event) => {
+            event.stopPropagation();
+            startCapture("draw");
+          }}
+        >
           <PenLine /> Draw
         </Button>
-        <Button size="sm" variant={mode === "record" ? "destructive" : "ghost"} disabled={!selectedSound} onClick={(event) => { event.stopPropagation(); startCapture("record"); }}>
+        <Button
+          size="sm"
+          variant={mode === "record" ? "destructive" : "ghost"}
+          disabled={!selectedSound}
+          onClick={(event) => {
+            event.stopPropagation();
+            startCapture("record");
+          }}
+        >
           {mode === "record" ? <Square /> : <Circle />} Record
         </Button>
         {selectedPath && !mode && (
-          <Button size="icon" variant="ghost" aria-label="Delete movement path" onClick={(event) => { event.stopPropagation(); p.onDeletePath(selectedPath.id); }}>
+          <Button
+            size="icon"
+            variant="ghost"
+            aria-label="Delete movement path"
+            onClick={(event) => {
+              event.stopPropagation();
+              p.onDeletePath(selectedPath.id);
+            }}
+          >
             <Trash2 />
           </Button>
         )}
@@ -157,33 +190,85 @@ export function RoomView(p: Props) {
       {shownPath.length > 1 && (
         <svg className="pointer-events-none absolute inset-0 size-full">
           <polyline
-            points={shownPath.map((point) => { const px = toPx(point.position); return `${px.left},${px.top}`; }).join(" ")}
+            points={shownPath
+              .map((point) => {
+                const px = toPx(point.position);
+                return `${px.left},${px.top}`;
+              })
+              .join(" ")}
             className="fill-none stroke-primary"
             strokeWidth="3"
             strokeDasharray={mode ? "5 5" : undefined}
           />
-          {shownPath.map((point, index) => { const px = toPx(point.position); return <circle key={`${point.time}-${index}`} cx={px.left} cy={px.top} r={index === 0 || index === shownPath.length - 1 ? 5 : 2} className="fill-primary" />; })}
+          {shownPath.map((point, index) => {
+            const px = toPx(point.position);
+            return (
+              <circle
+                key={`${point.time}-${index}`}
+                cx={px.left}
+                cy={px.top}
+                r={index === 0 || index === shownPath.length - 1 ? 5 : 2}
+                className="fill-primary"
+              />
+            );
+          })}
         </svg>
       )}
 
-      {p.room.outputMode === "speakers" && p.room.speakers.map((sp) => (
-        <div key={sp.id} onPointerDown={p.room.layout === "custom" ? drag((pos) => p.onMoveSpeaker(sp.id, { ...sp.position, ...pos })) : undefined} className={`absolute z-10 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center text-muted-foreground ${p.room.layout === "custom" ? "cursor-grab touch-none" : ""}`} style={toPx(sp.position)} title={sp.name}>
-          <Speaker className="size-5" /><span className="text-[10px]">{sp.name}</span>
-        </div>
-      ))}
-
-      <div onPointerDown={drag((pos) => p.onMoveListener({ ...p.room.listener, ...pos }))} className="absolute z-20 grid size-9 -translate-x-1/2 -translate-y-1/2 cursor-grab touch-none place-items-center rounded-full border-2 border-foreground bg-background/80" style={toPx(p.room.listener)} aria-label="Listener"><Ear className="size-4" /></div>
-
-      {p.sounds.filter((s) => s.kind !== "ambisonic").map((s) => {
-        const active = s.id === p.selectedId;
-        const scale = 0.7 + ((s.position.z + 1) / 2) * 0.6;
-        return (
-          <div key={s.id} onPointerDown={(e) => { p.onSelect(s.id); drag((pos) => p.onMoveSound(s.id, { ...s.position, ...pos }))(e); }} className="absolute z-30 -translate-x-1/2 -translate-y-1/2 cursor-grab touch-none" style={toPx(s.position)}>
-            <div className={`grid place-items-center rounded-full text-[11px] font-bold text-background shadow-lg ${active ? "ring-2 ring-foreground" : ""} ${s.playing ? "animate-pulse" : "opacity-70"}`} style={{ background: s.color, width: 32 * scale, height: 32 * scale }}>{s.name.slice(0, 2).toUpperCase()}</div>
-            <span className="absolute left-1/2 top-full mt-1 -translate-x-1/2 whitespace-nowrap text-[10px] text-muted-foreground">{s.name.length > 16 ? `${s.name.slice(0, 16)}…` : s.name} · {metres(s.position)}</span>
+      {p.room.outputMode === "speakers" &&
+        p.room.speakers.map((sp) => (
+          <div
+            key={sp.id}
+            onPointerDown={
+              p.room.layout === "custom"
+                ? drag((pos) => p.onMoveSpeaker(sp.id, { ...sp.position, ...pos }))
+                : undefined
+            }
+            className={`absolute z-10 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center text-muted-foreground ${p.room.layout === "custom" ? "cursor-grab touch-none" : ""}`}
+            style={toPx(sp.position)}
+            title={sp.name}
+          >
+            <Speaker className="size-5" />
+            <span className="text-[10px]">{sp.name}</span>
           </div>
-        );
-      })}
+        ))}
+
+      <div
+        onPointerDown={drag((pos) => p.onMoveListener({ ...p.room.listener, ...pos }))}
+        className="absolute z-20 grid size-9 -translate-x-1/2 -translate-y-1/2 cursor-grab touch-none place-items-center rounded-full border-2 border-foreground bg-background/80"
+        style={toPx(p.room.listener)}
+        aria-label="Listener"
+      >
+        <Ear className="size-4" />
+      </div>
+
+      {p.sounds
+        .filter((s) => s.kind !== "ambisonic")
+        .map((s) => {
+          const active = s.id === p.selectedId;
+          const scale = 0.7 + ((s.position.z + 1) / 2) * 0.6;
+          return (
+            <div
+              key={s.id}
+              onPointerDown={(e) => {
+                p.onSelect(s.id);
+                drag((pos) => p.onMoveSound(s.id, { ...s.position, ...pos }))(e);
+              }}
+              className="absolute z-30 -translate-x-1/2 -translate-y-1/2 cursor-grab touch-none"
+              style={toPx(s.position)}
+            >
+              <div
+                className={`grid place-items-center rounded-full text-[11px] font-bold text-background shadow-lg ${active ? "ring-2 ring-foreground" : ""} ${s.playing ? "animate-pulse" : "opacity-70"}`}
+                style={{ background: s.color, width: 32 * scale, height: 32 * scale }}
+              >
+                {s.name.slice(0, 2).toUpperCase()}
+              </div>
+              <span className="absolute left-1/2 top-full mt-1 -translate-x-1/2 whitespace-nowrap text-[10px] text-muted-foreground">
+                {s.name.length > 16 ? `${s.name.slice(0, 16)}…` : s.name} · {metres(s.position)}
+              </span>
+            </div>
+          );
+        })}
     </div>
   );
 }
