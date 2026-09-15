@@ -474,6 +474,9 @@ function Studio() {
       }
       setSounds(restored);
       setSelectedSoundId(restored[0]?.id ?? null);
+      // opening a show is not an undoable step
+      history.current.clear();
+      restoring.current = true;
       setSavedAt(project.updatedAt);
       localStorage.setItem(LAST_KEY, project.id);
       if (channelRef.current) sendMedia(channelRef.current, items);
