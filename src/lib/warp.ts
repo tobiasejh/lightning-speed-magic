@@ -76,6 +76,40 @@ export function quadMatrix(w: number, h: number, dst: Pt[]): string {
   return `matrix3d(${m.map((n) => (Math.abs(n) < 1e-8 ? 0 : Number(n.toFixed(6)))).join(",")})`;
 }
 
+/**
+ * Rebuilds the quad as an upright rectangle of the given pixel aspect ratio,
+ * anchored on the corner opposite the one being dragged.
+ * Corner order is top-left, top-right, bottom-right, bottom-left.
+ */
+export function lockRectAspect(
+  corners: Pt[],
+  index: number,
+  aspect: number,
+  stage: { w: number; h: number },
+): Pt[] {
+  const fixed = corners[(index + 2) % 4];
+  const moved = corners[index];
+  if (!fixed || !moved || !Number.isFinite(aspect) || aspect <= 0) return corners;
+  const sx = stage.w || 1;
+  const sy = stage.h || 1;
+  const dx = (moved.x - fixed.x) * sx;
+  const dy = (moved.y - fixed.y) * sy;
+  const width = Math.max(24, Math.abs(dx), Math.abs(dy) * aspect);
+  const height = width / aspect;
+  const x2 = fixed.x + ((dx < 0 ? -width : width) / sx || 0);
+  const y2 = fixed.y + ((dy < 0 ? -height : height) / sy || 0);
+  const left = clamp01(Math.min(fixed.x, x2));
+  const right = clamp01(Math.max(fixed.x, x2));
+  const top = clamp01(Math.min(fixed.y, y2));
+  const bottom = clamp01(Math.max(fixed.y, y2));
+  return [
+    { x: left, y: top },
+    { x: right, y: top },
+    { x: right, y: bottom },
+    { x: left, y: bottom },
+  ];
+}
+
 export const defaultCorners = (inset = 0.12): Pt[] => [
   { x: inset, y: inset },
   { x: 1 - inset, y: inset },
