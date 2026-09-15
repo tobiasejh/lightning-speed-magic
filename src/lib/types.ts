@@ -41,9 +41,84 @@ export type Surface = {
   audioSource: string;
   /** which projector output window shows this surface */
   outputId: string;
+  /** internal render size in pixels */
+  renderW: number;
+  renderH: number;
+  /** keep the mapped shape at the render aspect ratio */
+  lockAspect: boolean;
 };
 
-export type OutputScreen = { id: string; name: string };
+/** Share of the shared show canvas a projector displays (0..1). */
+export type OutputRegion = { x: number; y: number; w: number; h: number };
+
+/** Edge blend: fade `width` (share of the window), down to `level` brightness. */
+export type BlendEdge = { width: number; level: number; curve: number };
+
+export type BlendConfig = {
+  left: BlendEdge;
+  right: BlendEdge;
+  top: BlendEdge;
+  bottom: BlendEdge;
+};
+
+export type OutputScreen = {
+  id: string;
+  name: string;
+  region: OutputRegion;
+  blend: BlendConfig;
+  /** flat grey field for lining up the overlap */
+  blendTest?: boolean | undefined;
+};
+
+export const defaultRegion = (): OutputRegion => ({ x: 0, y: 0, w: 1, h: 1 });
+
+export const noEdge = (): BlendEdge => ({ width: 0, level: 0, curve: 1 });
+
+export const defaultBlend = (): BlendConfig => ({
+  left: noEdge(),
+  right: noEdge(),
+  top: noEdge(),
+  bottom: noEdge(),
+});
+
+/** Fill in fields older saved projectors may lack. */
+export const upgradeOutput = (o: Partial<OutputScreen> & { id: string }): OutputScreen => ({
+  name: o.name ?? o.id,
+  ...o,
+  region: { ...defaultRegion(), ...(o.region ?? {}) },
+  blend: {
+    left: { ...noEdge(), ...(o.blend?.left ?? {}) },
+    right: { ...noEdge(), ...(o.blend?.right ?? {}) },
+    top: { ...noEdge(), ...(o.blend?.top ?? {}) },
+    bottom: { ...noEdge(), ...(o.blend?.bottom ?? {}) },
+  },
+});
+
+/** Lay projectors side by side across the canvas with a shared overlap. */
+export const splitOutputsEvenly = (
+  outputs: OutputScreen[],
+  overlap: number,
+  rows = 1,
+): OutputScreen[] => {
+  const columns = Math.max(1, Math.ceil(outputs.length / rows));
+  const w = 1 / columns;
+  const h = 1 / rows;
+  return outputs.map((output, index) => {
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    const x = Math.max(0, column * w - (column > 0 ? overlap / 2 : 0));
+    const y = Math.max(0, row * h - (row > 0 ? overlap / 2 : 0));
+    const width = Math.min(1 - x, w + (columns > 1 ? overlap : 0));
+    const height = Math.min(1 - y, h + (rows > 1 ? overlap : 0));
+    const blend: BlendConfig = {
+      left: { ...noEdge(), ...(column > 0 ? { width: overlap } : {}) },
+      right: { ...noEdge(), ...(column < columns - 1 ? { width: overlap } : {}) },
+      top: { ...noEdge(), ...(row > 0 ? { width: overlap } : {}) },
+      bottom: { ...noEdge(), ...(row < rows - 1 ? { width: overlap } : {}) },
+    };
+    return { ...output, region: { x, y, w: width, h: height }, blend };
+  });
+};
 
 export type Scene = {
   id: string;
@@ -183,6 +258,9 @@ export type Project = {
   timelineTracks?: TimelineTrack[];
   timelineClips?: TimelineClip[];
   soundPaths?: SoundPath[];
+  /** which clip was selected in the timeline when the show was saved */
+  selectedClipId?: string | null;
+  activePathId?: string | null;
 };
 
 /** Live media elements, kept outside React state. */
@@ -191,7 +269,9 @@ export const mediaElements = new Map<string, HTMLImageElement | HTMLVideoElement
 /** Metadata (crop/trim) for live media, mirrored in both windows. */
 export const mediaMeta = new Map<string, Omit<MediaItem, "url">>();
 
-export const defaultOutputs = (): OutputScreen[] => [{ id: "out1", name: "Projector 1" }];
+export const defaultOutputs = (): OutputScreen[] => [
+  { id: "out1", name: "Projector 1", region: defaultRegion(), blend: defaultBlend() },
+];
 
 export const SPEAKER_LAYOUTS: Record<string, Speaker[]> = {
   stereo: [

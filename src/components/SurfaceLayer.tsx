@@ -139,8 +139,8 @@ export function SurfaceLayer({ surface, index, stage, globals, testPattern, leve
     >
       <canvas
         ref={canvasRef}
-        width={640}
-        height={360}
+        width={Math.max(64, Math.min(3840, Math.round(surface.renderW || 1280)))}
+        height={Math.max(64, Math.min(2160, Math.round(surface.renderH || 720)))}
         style={{ width: "100%", height: "100%", display: "block" }}
       />
     </div>

@@ -1,9 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { SurfaceLayer } from "@/components/SurfaceLayer";
+import { paintBlend } from "@/lib/blend";
 import { openChannel, type OutputSnapshot, type SyncMessage } from "@/lib/sync";
-import { defaultGlobals, mediaElements, mediaMeta } from "@/lib/types";
+import { defaultBlend, defaultRegion, defaultGlobals, mediaElements, mediaMeta } from "@/lib/types";
 
 const title = "Prism Output — Projector Screen";
 const description =
@@ -35,6 +36,7 @@ function OutputPage() {
   const [connected, setConnected] = useState(false);
   const [stage, setStage] = useState({ w: 0, h: 0 });
   const stageRef = useRef<HTMLDivElement | null>(null);
+  const maskRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
     setOutputId(new URLSearchParams(window.location.search).get("id") || "out1");
@@ -62,6 +64,15 @@ function OutputPage() {
         setSnap(msg.snapshot);
         for (const m of msg.snapshot.media) mediaMeta.set(m.id, m);
         setConnected(true);
+      } else if (msg.type === "clock") {
+        // follow the editor timeline instead of looping on our own
+        for (const [mediaId, at] of Object.entries(msg.videos)) {
+          const el = mediaElements.get(mediaId);
+          if (!(el instanceof HTMLVideoElement)) continue;
+          if (Math.abs(el.currentTime - at) > 0.25) el.currentTime = at;
+          if (msg.playing) void el.play().catch(() => undefined);
+          else el.pause();
+        }
       } else if (msg.type === "drop-media") {
         for (const dropped of msg.ids) {
           const el = mediaElements.get(dropped);
@@ -107,6 +118,29 @@ function OutputPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const output = useMemo(
+    () => snap.outputs?.find((o) => o.id === outputId) ?? null,
+    [snap.outputs, outputId],
+  );
+  const region = output?.region ?? defaultRegion();
+  const blend = output?.blend ?? defaultBlend();
+
+  // the shared canvas is bigger than this window; we show our slice of it
+  const canvas = {
+    w: stage.w / Math.max(0.05, region.w),
+    h: stage.h / Math.max(0.05, region.h),
+  };
+
+  useEffect(() => {
+    const el = maskRef.current;
+    if (!el) return;
+    const ctx = el.getContext("2d");
+    if (!ctx) return;
+    el.width = Math.max(1, Math.round(stage.w));
+    el.height = Math.max(1, Math.round(stage.h));
+    paintBlend(ctx, el.width, el.height, blend);
+  }, [stage.w, stage.h, blend]);
+
   const toggleFullscreen = () => {
     if (document.fullscreenElement) void document.exitFullscreen();
     else void document.documentElement.requestFullscreen();
@@ -120,17 +154,31 @@ function OutputPage() {
       onClick={toggleFullscreen}
       className="relative h-screen w-screen cursor-none select-none overflow-hidden bg-black"
     >
-      {mine.map((s, i) => (
-        <SurfaceLayer
-          key={s.id}
-          surface={s}
-          index={i}
-          stage={stage}
-          globals={{ ...snap.globals, audioReactive: false }}
-          testPattern={snap.testPattern}
-          levels={null}
-        />
-      ))}
+      <div
+        className="absolute"
+        style={{
+          left: -region.x * canvas.w,
+          top: -region.y * canvas.h,
+          width: canvas.w || 1,
+          height: canvas.h || 1,
+        }}
+      >
+        {mine.map((s, i) => (
+          <SurfaceLayer
+            key={s.id}
+            surface={s}
+            index={i}
+            stage={canvas}
+            globals={{ ...snap.globals, audioReactive: false }}
+            testPattern={snap.testPattern}
+            levels={null}
+          />
+        ))}
+      </div>
+      {output?.blendTest && (
+        <div className="absolute inset-0" style={{ background: "rgb(128,128,128)" }} />
+      )}
+      <canvas ref={maskRef} className="pointer-events-none absolute inset-0 size-full" />
       {!connected && (
         <p className="absolute inset-x-0 bottom-6 text-center text-xs text-muted-foreground">
           Waiting for the Prism control window… keep both windows open. Click to go fullscreen.

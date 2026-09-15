@@ -50,3 +50,13 @@
 - [x] X/Y automation lanes for movement clips in the timeline
 - [x] Room editor and timeline share the same path data
 - [x] Verified in browser
+
+## v7
+
+- [ ] One show canvas split across projectors, each with its own region
+- [ ] Edge blending per side (fade width, brightness, curve) plus blend test field
+- [ ] Manual surface resolution with presets, match source, and locked shape
+- [ ] Saved shows reopen with the chosen clip and automation selected
+- [ ] Save problems shown instead of silently ignored
+- [ ] Projector windows follow the editor timeline clock
+- [ ] Verified in browser

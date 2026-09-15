@@ -56,8 +56,12 @@ import { openChannel, type OutputSnapshot, type SyncMessage } from "@/lib/sync";
 import {
   SOUND_COLORS,
   defaultGlobals,
+  defaultBlend,
   defaultOutputs,
+  defaultRegion,
   defaultRoom,
+  splitOutputsEvenly,
+  upgradeOutput,
   mediaElements,
   mediaMeta,
   type Crop,
@@ -76,7 +80,7 @@ import {
   type TimelineTrack,
   type Vec3,
 } from "@/lib/types";
-import { clampCorners, clampPoint, defaultCorners, type Pt } from "@/lib/warp";
+import { clampCorners, clampPoint, defaultCorners, lockRectAspect, type Pt } from "@/lib/warp";
 import { visuals } from "@/lib/visuals";
 
 const title = "Prism — Projection Mapping in Your Browser";
@@ -111,7 +115,17 @@ const newSurface = (n: number, source: string): Surface => ({
   rotate: 0,
   audioSource: "mic",
   outputId: "out1",
+  renderW: 1280,
+  renderH: 720,
+  lockAspect: false,
 });
+
+const RESOLUTION_PRESETS = [
+  { label: "1920×1080", w: 1920, h: 1080 },
+  { label: "1280×800", w: 1280, h: 800 },
+  { label: "1024×768", w: 1024, h: 768 },
+  { label: "800×600", w: 800, h: 600 },
+];
 
 /** Fill in fields older saved surfaces may lack. */
 const upgradeSurface = (
@@ -203,6 +217,7 @@ function Studio() {
   const [soundPaths, setSoundPaths] = useState<SoundPath[]>([]);
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [activePathId, setActivePathId] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [timelineZoom, setTimelineZoom] = useState(1);
   const [movementPositions, setMovementPositions] = useState<Record<string, Vec3>>({});
   const [showPlaying, setShowPlaying] = useState(false);
@@ -348,14 +363,22 @@ function Studio() {
       setTestPattern(project.testPattern ?? "off");
       setSurfaces(project.surfaces.map(upgradeSurface));
       setSelectedId(project.surfaces[0]?.id ?? null);
-      setOutputs(project.outputs?.length ? project.outputs : defaultOutputs());
+      setOutputs(project.outputs?.length ? project.outputs.map(upgradeOutput) : defaultOutputs());
       setScenes(project.scenes ?? []);
       setCues(project.timeline ?? []);
       setTimelineTracks(
         project.timelineTracks?.length ? project.timelineTracks : defaultTimelineTracks(),
       );
       setTimelineClips(project.timelineClips ?? []);
-      setSoundPaths((project.soundPaths ?? []).map(upgradePath));
+      const paths = (project.soundPaths ?? []).map(upgradePath);
+      setSoundPaths(paths);
+      // bring back what was selected so the clip inspector and lanes reappear
+      const clips = project.timelineClips ?? [];
+      const savedClip = clips.find((clip) => clip.id === project.selectedClipId);
+      setSelectedClipId(savedClip?.id ?? clips[0]?.id ?? null);
+      setActivePathId(
+        paths.find((path) => path.id === project.activePathId)?.id ?? paths[0]?.id ?? null,
+      );
       setShowPlaying(false);
       setShowTime(0);
       mediaMeta.clear();
@@ -413,7 +436,7 @@ function Studio() {
 
   const buildProject = useCallback(
     (id = projectId, name = projectName): Project => ({
-      version: 5,
+      version: 7,
       id,
       name,
       updatedAt: Date.now(),
@@ -429,8 +452,12 @@ function Studio() {
       timelineTracks,
       timelineClips,
       soundPaths,
+      selectedClipId,
+      activePathId,
     }),
     [
+      selectedClipId,
+      activePathId,
       projectId,
       projectName,
       surfaces,
@@ -452,9 +479,14 @@ function Studio() {
     try {
       await saveProject(p, blobs.current);
       setSavedAt(p.updatedAt);
+      setSaveError(null);
       setProjects(await listProjects());
-    } catch {
-      /* storage unavailable */
+    } catch (error) {
+      setSaveError(
+        error instanceof Error
+          ? `Could not save this show: ${error.message}`
+          : "Could not save this show on this device.",
+      );
     }
   }, []);
 
@@ -499,8 +531,9 @@ function Studio() {
       globals,
       testPattern,
       media: media.map(({ url: _url, ...rest }) => rest),
+      outputs,
     }),
-    [displaySurfaces, globals, testPattern, media],
+    [displaySurfaces, globals, testPattern, media, outputs],
   );
 
   function sendMedia(ch: BroadcastChannel, items: MediaItem[]) {
@@ -548,6 +581,35 @@ function Studio() {
       }
       if (changed) setOpenOutputs([...outputWins.current.keys()]);
     }, 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  // share the show clock so every projector window plays the same frame
+  const clockState = useRef({
+    playing: showPlaying,
+    time: showTime,
+    clips: timelineClips,
+    tracks: timelineTracks,
+  });
+  clockState.current = {
+    playing: showPlaying,
+    time: showTime,
+    clips: timelineClips,
+    tracks: timelineTracks,
+  };
+
+  useEffect(() => {
+    const t = setInterval(() => {
+      const ch = channelRef.current;
+      if (!ch) return;
+      const { playing, time, clips, tracks } = clockState.current;
+      const videos: Record<string, number> = {};
+      for (const clip of activeClipsAt(tracks, clips, time)) {
+        if (clip.kind !== "visual" || !clip.mediaId) continue;
+        videos[clip.mediaId] = clip.inPoint + Math.max(0, time - clip.start);
+      }
+      ch.postMessage({ type: "clock", playing, time, videos } satisfies SyncMessage);
+    }, 250);
     return () => clearInterval(t);
   }, []);
 
@@ -843,11 +905,19 @@ function Studio() {
       p = clampPoint(p);
       setSnapFlash(flash);
       setSurfaces((prev) =>
-        prev.map((s) =>
-          s.id === selected.id
-            ? { ...s, corners: s.corners.map((c, i) => (i === index ? p : c)) }
-            : s,
-        ),
+        prev.map((s) => {
+          if (s.id !== selected.id) return s;
+          const moved = s.corners.map((c, i) => (i === index ? p : c));
+          return {
+            ...s,
+            corners: s.lockAspect
+              ? lockRectAspect(moved, index, (s.renderW || 16) / (s.renderH || 9), {
+                  w: rect.width,
+                  h: rect.height,
+                })
+              : moved,
+          };
+        }),
       );
     };
     const up = () => {
@@ -1160,6 +1230,14 @@ function Studio() {
         {/* Show */}
         <section className="space-y-3">
           <SectionTitle>Show</SectionTitle>
+          {saveError && (
+            <p
+              role="alert"
+              className="rounded border border-destructive/60 p-2 text-xs text-destructive"
+            >
+              {saveError}
+            </p>
+          )}
           <ShowPanel
             tracks={timelineTracks}
             clips={timelineClips}
@@ -1184,7 +1262,12 @@ function Studio() {
             onAddOutput={() =>
               setOutputs((prev) => [
                 ...prev,
-                { id: `out${prev.length + 1}`, name: `Projector ${prev.length + 1}` },
+                {
+                  id: `out${prev.length + 1}`,
+                  name: `Projector ${prev.length + 1}`,
+                  region: defaultRegion(),
+                  blend: defaultBlend(),
+                },
               ])
             }
             onRemoveOutput={(id) => {
@@ -1193,6 +1276,10 @@ function Studio() {
                 prev.map((s) => (s.outputId === id ? { ...s, outputId: "out1" } : s)),
               );
             }}
+            onPatchOutput={(id, next) =>
+              setOutputs((prev) => prev.map((o) => (o.id === id ? { ...o, ...next } : o)))
+            }
+            onSplitOutputs={(overlap) => setOutputs((prev) => splitOutputsEvenly(prev, overlap))}
             onOpenOutput={openOutput}
             onPatchPath={(path) =>
               setSoundPaths((prev) =>
@@ -1386,6 +1473,78 @@ function Studio() {
                         </Select>
                       </div>
                     )}
+                    <div className="space-y-1.5 rounded border border-border p-2">
+                      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                        Resolution
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          min={64}
+                          max={3840}
+                          aria-label="Surface width in pixels"
+                          value={s.renderW}
+                          onChange={(e) =>
+                            patch(s.id, {
+                              renderW: Math.max(64, Math.min(3840, Number(e.target.value) || 64)),
+                            })
+                          }
+                          className="w-20 rounded border border-border bg-background px-1 py-0.5 text-xs tabular-nums"
+                        />
+                        <span className="text-xs text-muted-foreground">×</span>
+                        <input
+                          type="number"
+                          min={64}
+                          max={2160}
+                          aria-label="Surface height in pixels"
+                          value={s.renderH}
+                          onChange={(e) =>
+                            patch(s.id, {
+                              renderH: Math.max(64, Math.min(2160, Number(e.target.value) || 64)),
+                            })
+                          }
+                          className="w-20 rounded border border-border bg-background px-1 py-0.5 text-xs tabular-nums"
+                        />
+                        <Button
+                          size="sm"
+                          variant={s.lockAspect ? "default" : "secondary"}
+                          onClick={() => patch(s.id, { lockAspect: !s.lockAspect })}
+                        >
+                          {s.lockAspect ? "Shape locked" : "Lock shape"}
+                        </Button>
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {RESOLUTION_PRESETS.map((preset) => (
+                          <Button
+                            key={preset.label}
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 px-1.5 text-[10px]"
+                            onClick={() => patch(s.id, { renderW: preset.w, renderH: preset.h })}
+                          >
+                            {preset.label}
+                          </Button>
+                        ))}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 px-1.5 text-[10px]"
+                          onClick={() => {
+                            const el = s.source.startsWith("media:")
+                              ? mediaElements.get(s.source.slice(6))
+                              : null;
+                            if (!el) return;
+                            const w =
+                              el instanceof HTMLVideoElement ? el.videoWidth : el.naturalWidth;
+                            const h =
+                              el instanceof HTMLVideoElement ? el.videoHeight : el.naturalHeight;
+                            if (w && h) patch(s.id, { renderW: w, renderH: h });
+                          }}
+                        >
+                          Match source
+                        </Button>
+                      </div>
+                    </div>
                     <Button
                       size="sm"
                       variant="secondary"
@@ -1638,6 +1797,26 @@ function Studio() {
           )}
           {!fullscreen && view === "stage" && (
             <svg className="pointer-events-none absolute inset-0 size-full">
+              {outputs.length > 1 &&
+                outputs.map((output, i) => (
+                  <g key={`region-${output.id}`}>
+                    <rect
+                      x={output.region.x * stage.w}
+                      y={output.region.y * stage.h}
+                      width={output.region.w * stage.w}
+                      height={output.region.h * stage.h}
+                      className="fill-none stroke-chart-2/60"
+                      strokeDasharray="8 6"
+                    />
+                    <text
+                      x={output.region.x * stage.w + 6}
+                      y={output.region.y * stage.h + 14}
+                      className="fill-chart-2/80 text-[10px]"
+                    >
+                      {output.name || `Projector ${i + 1}`}
+                    </text>
+                  </g>
+                ))}
               {surfaces
                 .filter((s) => s.visible)
                 .map((s) => (
