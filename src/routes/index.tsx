@@ -713,7 +713,8 @@ function Studio() {
         duration: 0,
       };
       blobs.current.set(id, file);
-      added.push(await eng.addSound(item, file));
+      const wave = await decodeWaveform(file);
+      added.push(await eng.addSound({ ...item, peaks: wave?.peaks }, file));
       i++;
     }
     if (added.length) {
