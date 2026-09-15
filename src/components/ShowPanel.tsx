@@ -77,6 +77,24 @@ const colors: Record<TimelineTrackKind, string> = {
 
 export function ShowPanel(p: Props) {
   const [showLanes, setShowLanes] = useState(true);
+  const [bigLaneClipId, setBigLaneClipId] = useState<string | null>(null);
+
+  /** How much material a clip has, in seconds, or null when it has no fixed length. */
+  const sourceLength = (clip: TimelineClip): number | null => {
+    const media = clip.mediaId ? p.media.find((item) => item.id === clip.mediaId) : undefined;
+    if (media) {
+      if (media.kind === "image") return null;
+      const end = media.trimEnd ?? media.duration;
+      return end ? end : null;
+    }
+    const sound = clip.soundId ? p.sounds.find((item) => item.id === clip.soundId) : undefined;
+    if (sound?.duration) return sound.duration;
+    return null;
+  };
+  const maxDuration = (clip: TimelineClip, inPoint = clip.inPoint) => {
+    const total = sourceLength(clip);
+    return total === null ? Infinity : Math.max(0.25, total - inPoint);
+  };
 
   const length = timelineLength(p.clips);
   const pixelsPerSecond = 18 * p.zoom;
