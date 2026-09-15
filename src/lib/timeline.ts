@@ -130,7 +130,7 @@ export const pathChain = (path: SoundPath) => {
   if (!segments.length) return path.nodes.map((node) => ({ nodeId: node.id, time: 0 }));
   chain.push({ nodeId: segments[0]!.fromId, time: 0 });
   for (const segment of segments) {
-    time += Math.max(1, segment.durationMs) / 1000;
+    time += Math.max(0, segment.durationMs) / 1000;
     chain.push({ nodeId: segment.toId, time });
   }
   return chain;
@@ -141,7 +141,9 @@ export const positionOnPath = (path: SoundPath, elapsed: number): Vec3 | null =>
   if (!segments.length) return path.nodes[0]?.position ?? null;
   let time = 0;
   for (const segment of segments) {
-    const length = Math.max(1, segment.durationMs) / 1000;
+    const length = Math.max(0, segment.durationMs) / 1000;
+    // a 0 ms line is an instant jump: skip straight to its end point
+    if (length <= 0) continue;
     if (elapsed <= time + length) return sampleSegment(path, segment, (elapsed - time) / length);
     time += length;
   }
