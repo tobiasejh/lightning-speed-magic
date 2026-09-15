@@ -225,6 +225,8 @@ export type SoundItem = {
   /** heading (degrees) for ambisonic files */
   heading: number;
   duration: number;
+  /** loudness overview of the file, for drawing a waveform */
+  peaks?: number[] | undefined;
   /** for kind "video": the media item whose element feeds this track */
   mediaId?: string;
 };
