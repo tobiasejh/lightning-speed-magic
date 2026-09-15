@@ -315,7 +315,7 @@ export function RoomView(p: Props) {
                   onPointerDown={dragNode(node.id)}
                   onContextMenu={(event) => {
                     event.preventDefault();
-                    p.onSavePath(removeNode(path, node.id));
+                    p.onSavePath(withDuration(removeNode(path, node.id)));
                   }}
                 />
                 <text
