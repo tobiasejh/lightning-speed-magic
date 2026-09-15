@@ -14,6 +14,10 @@ export type MediaItem = {
   /** seconds; video clips only */
   trimStart?: number | undefined;
   trimEnd?: number | undefined;
+  /** full length of the source file in seconds (videos only) */
+  duration?: number | undefined;
+  /** loudness overview of the file's audio, for drawing a waveform */
+  peaks?: number[] | undefined;
   /** video has an audio track we can route */
   hasAudio?: boolean | undefined;
   /** offset in seconds applied to a linked separate audio track */
