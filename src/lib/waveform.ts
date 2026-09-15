@@ -10,8 +10,7 @@ export async function decodeWaveform(blob: Blob, buckets = BUCKETS): Promise<Wav
       typeof window === "undefined"
         ? undefined
         : (window.AudioContext ??
-          (window as unknown as { webkitAudioContext?: typeof AudioContext })
-            .webkitAudioContext);
+          (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext);
     if (!Ctx) return null;
     const ctx = new Ctx();
     const buffer = await ctx.decodeAudioData(await blob.arrayBuffer());

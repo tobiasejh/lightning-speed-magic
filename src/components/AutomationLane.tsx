@@ -36,7 +36,15 @@ type Props = {
   onPatchPath: (path: SoundPath) => void;
 };
 
-export function AutomationLane({ path, axis, span, width, height = 44, peaks, onPatchPath }: Props) {
+export function AutomationLane({
+  path,
+  axis,
+  span,
+  width,
+  height = 44,
+  peaks,
+  onPatchPath,
+}: Props) {
   const length = Math.max(0.001, span);
   const toX = (time: number) => (Math.max(0, Math.min(length, time)) / length) * width;
   const toY = (value: number) => ((value + 1) / 2) * height;
