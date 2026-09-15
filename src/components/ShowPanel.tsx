@@ -95,6 +95,13 @@ export function ShowPanel(p: Props) {
     const total = sourceLength(clip);
     return total === null ? Infinity : Math.max(0.25, total - inPoint);
   };
+  /** Loudness overview of whatever sound a clip is tied to, for the waveform. */
+  const clipPeaks = (clip: TimelineClip) => {
+    const sound = clip.soundId ? p.sounds.find((item) => item.id === clip.soundId) : undefined;
+    if (sound?.peaks?.length) return sound.peaks;
+    const media = clip.mediaId ? p.media.find((item) => item.id === clip.mediaId) : undefined;
+    return media?.peaks?.length ? media.peaks : undefined;
+  };
 
   const length = timelineLength(p.clips);
   const pixelsPerSecond = 18 * p.zoom;
