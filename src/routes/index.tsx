@@ -40,6 +40,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
 import { MicAnalyser, silentLevels, type AudioLevelProvider } from "@/lib/audio";
 import { SpatialEngine } from "@/lib/audio-engine";
+import { History, type ShowSnapshot } from "@/lib/history";
 import { snapCandidates, snapPoint } from "@/lib/snap";
 import { activeClipsAt, positionOnPath, timelineLength, upgradePath } from "@/lib/timeline";
 import {
