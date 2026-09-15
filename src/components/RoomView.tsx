@@ -203,7 +203,7 @@ export function RoomView(p: Props) {
         </p>
         <p className="text-muted-foreground">
           Click to add a point · Ctrl+click two points to link · Shift+drag a line to curve ·
-          Alt+click a line to split
+          Alt+click a line to split · right-click a line or point to delete it · Ctrl+Z to undo
         </p>
         {linkFromId && (
           <p className="flex items-center gap-1 text-primary">
