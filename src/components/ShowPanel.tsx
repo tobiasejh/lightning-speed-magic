@@ -313,6 +313,12 @@ export function ShowPanel(p: Props) {
                         event.stopPropagation();
                         p.onSelectClip(clip.id);
                       }}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        p.onClips(p.clips.filter((item) => item.id !== clip.id));
+                        if (p.selectedClipId === clip.id) p.onSelectClip(null);
+                      }}
                       className={`absolute top-1 h-10 min-w-8 cursor-grab overflow-hidden rounded border px-2 py-1 text-[10px] shadow ${colors[clip.kind]} ${p.selectedClipId === clip.id ? "border-foreground ring-1 ring-foreground" : "border-border"}`}
                       style={{
                         left: clip.start * pixelsPerSecond,
