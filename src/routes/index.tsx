@@ -262,7 +262,7 @@ function Studio() {
   // ----- undo / redo -----
   const history = useRef(new History());
   const restoring = useRef(false);
-  const snapshot = useMemo<ShowSnapshot>(
+  const showSnapshot = useMemo<ShowSnapshot>(
     () => ({
       surfaces,
       tracks: timelineTracks,
@@ -274,12 +274,12 @@ function Studio() {
     }),
     [surfaces, timelineTracks, timelineClips, soundPaths, outputs, room, globals],
   );
-  const snapRef = useRef(snapshot);
+  const snapRef = useRef(showSnapshot);
   useEffect(() => {
     if (restoring.current) restoring.current = false;
     else if (loaded) history.current.push(snapRef.current);
-    snapRef.current = snapshot;
-  }, [snapshot, loaded]);
+    snapRef.current = showSnapshot;
+  }, [showSnapshot, loaded]);
 
   const applySnapshot = useCallback((s: ShowSnapshot) => {
     restoring.current = true;
