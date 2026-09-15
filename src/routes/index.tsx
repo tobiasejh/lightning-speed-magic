@@ -828,6 +828,25 @@ function Studio() {
       };
       if (el.readyState >= 1) setTimeout(check, 300);
       else el.addEventListener("loadeddata", () => setTimeout(check, 300), { once: true });
+      // remember the real length so dropped clips match the file, and its loudness overview
+      const noteLength = () =>
+        setMedia((prev) =>
+          prev.map((m) => (m.id === item.id ? { ...m, duration: el.duration || undefined } : m)),
+        );
+      if (Number.isFinite(el.duration) && el.duration) noteLength();
+      else el.addEventListener("loadedmetadata", noteLength, { once: true });
+      const file = blobs.current.get(item.blobId);
+      if (file)
+        void decodeWaveform(file).then((wave) => {
+          if (!wave) return;
+          setMedia((prev) =>
+            prev.map((m) =>
+              m.id === item.id
+                ? { ...m, peaks: wave.peaks, duration: m.duration ?? wave.duration }
+                : m,
+            ),
+          );
+        });
     }
   };
 
