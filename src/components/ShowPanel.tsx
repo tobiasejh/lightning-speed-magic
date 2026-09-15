@@ -120,10 +120,12 @@ export function ShowPanel(p: Props) {
     const media = p.media.find((item) => item.id === sourceId);
     const sound = p.sounds.find((item) => item.id === sourceId);
     const path = p.paths.find((item) => item.id === sourceId);
-    const duration = Math.max(
-      0.5,
-      path?.duration ?? sound?.duration ?? (media?.trimEnd ?? 10) - (media?.trimStart ?? 0),
-    );
+    // a new clip is as long as the file it came from
+    const mediaLength = media
+      ? (media.trimEnd ?? media.duration ?? (media.kind === "image" ? 10 : 0)) -
+        (media.trimStart ?? 0)
+      : 0;
+    const duration = Math.max(0.5, path?.duration ?? sound?.duration ?? mediaLength);
     const clip: TimelineClip = {
       id: `clip${Date.now()}`,
       trackId: track.id,
