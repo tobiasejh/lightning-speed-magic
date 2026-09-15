@@ -203,7 +203,7 @@ export function RoomView(p: Props) {
         </p>
         <p className="text-muted-foreground">
           Click to add a point · Ctrl+click two points to link · Shift+drag a line to curve ·
-          Alt+click a line to split
+          Alt+click a line to split · right-click a line or point to delete it · Ctrl+Z to undo
         </p>
         {linkFromId && (
           <p className="flex items-center gap-1 text-primary">
@@ -215,7 +215,7 @@ export function RoomView(p: Props) {
             <span className="text-muted-foreground">Line</span>
             <Input
               type="number"
-              min={20}
+              min={0}
               step={50}
               className="h-7 w-24"
               value={Math.round(selectedSegment.durationMs)}
@@ -224,7 +224,7 @@ export function RoomView(p: Props) {
                 p.onSavePath(
                   withDuration(
                     patchSegment(path, selectedSegment.id, {
-                      durationMs: Math.max(20, Number(event.target.value) || 20),
+                      durationMs: Math.max(0, Number(event.target.value) || 0),
                     }),
                   ),
                 )
@@ -285,6 +285,11 @@ export function RoomView(p: Props) {
                   fill="none"
                   className="cursor-pointer"
                   onPointerDown={segmentPointerDown(segment.id)}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    p.onSavePath(withDuration(removeSegment(path, segment.id)));
+                    setSelectedSegmentId(null);
+                  }}
                 />
                 <path
                   d={d}
@@ -310,7 +315,7 @@ export function RoomView(p: Props) {
                   onPointerDown={dragNode(node.id)}
                   onContextMenu={(event) => {
                     event.preventDefault();
-                    p.onSavePath(removeNode(path, node.id));
+                    p.onSavePath(withDuration(removeNode(path, node.id)));
                   }}
                 />
                 <text

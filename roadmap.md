@@ -60,3 +60,12 @@
 - [x] Save problems shown instead of silently ignored
 - [x] Projector windows follow the editor timeline clock
 - [x] Verified in browser
+
+## Version 8 — the standalone app
+- [x] Waveform of the linked sound behind the movement lanes
+- [x] Full-screen "Edit movement" panel with ruler and playhead
+- [x] Clips deletable: select + Delete/Backspace, inspector button, right-click
+- [x] Room editor: line duration down to 0 ms, right-click a line or point to delete
+- [x] Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y undo and redo for show edits
+- [x] Dropped visuals take the length of their file; dragging stops at the file's end; "Fit to clip"
+- [x] Portable Windows app (unzip, run Prism.exe) built from a client-only bundle

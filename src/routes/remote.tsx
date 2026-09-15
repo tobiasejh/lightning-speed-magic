@@ -34,7 +34,7 @@ export const Route = createFileRoute("/remote")({
   }),
 });
 
-function Remote() {
+export function Remote() {
   const { code: codeFromLink } = Route.useSearch();
   const [code, setCode] = useState(codeFromLink?.toUpperCase() ?? "");
   const [joined, setJoined] = useState(false);

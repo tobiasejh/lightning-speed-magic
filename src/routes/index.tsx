@@ -40,6 +40,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
 import { MicAnalyser, silentLevels, type AudioLevelProvider } from "@/lib/audio";
 import { SpatialEngine } from "@/lib/audio-engine";
+import { History, type ShowSnapshot } from "@/lib/history";
 import { snapCandidates, snapPoint } from "@/lib/snap";
 import { activeClipsAt, positionOnPath, timelineLength, upgradePath } from "@/lib/timeline";
 import {
@@ -82,6 +83,7 @@ import {
 } from "@/lib/types";
 import { clampCorners, clampPoint, defaultCorners, lockRectAspect, type Pt } from "@/lib/warp";
 import { visuals } from "@/lib/visuals";
+import { decodeWaveform } from "@/lib/waveform";
 
 const title = "Prism — Projection Mapping in Your Browser";
 const description =
@@ -194,7 +196,7 @@ const newVideoSound = (m: Omit<MediaItem, "url">, i: number, playing: boolean): 
   mediaId: m.id,
 });
 
-function Studio() {
+export function Studio() {
   const [projectId, setProjectId] = useState(() => `p${Date.now()}`);
   const [projectName, setProjectName] = useState("Untitled show");
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -256,6 +258,71 @@ function Studio() {
   }, [surfaces]);
 
   const selected = surfaces.find((s) => s.id === selectedId) ?? surfaces[0] ?? null;
+
+  // ----- undo / redo -----
+  const history = useRef(new History());
+  const restoring = useRef(false);
+  const showSnapshot = useMemo<ShowSnapshot>(
+    () => ({
+      surfaces,
+      tracks: timelineTracks,
+      clips: timelineClips,
+      paths: soundPaths,
+      outputs,
+      room,
+      globals,
+    }),
+    [surfaces, timelineTracks, timelineClips, soundPaths, outputs, room, globals],
+  );
+  const snapRef = useRef(showSnapshot);
+  useEffect(() => {
+    if (restoring.current) restoring.current = false;
+    else if (loaded) history.current.push(snapRef.current);
+    snapRef.current = showSnapshot;
+  }, [showSnapshot, loaded]);
+
+  const applySnapshot = useCallback((s: ShowSnapshot) => {
+    restoring.current = true;
+    setSurfaces(s.surfaces);
+    setTimelineTracks(s.tracks);
+    setTimelineClips(s.clips);
+    setSoundPaths(s.paths);
+    setOutputs(s.outputs);
+    setRoom(s.room);
+    setGlobals(s.globals);
+  }, []);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const el = event.target as HTMLElement | null;
+      // let people type (and use the browser's own undo) inside fields
+      if (el && (el.closest("input, textarea, [contenteditable='true']") || el.isContentEditable))
+        return;
+      const undoKey = (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z";
+      const redoKey =
+        (event.metaKey || event.ctrlKey) &&
+        (event.key.toLowerCase() === "y" || (event.shiftKey && event.key.toLowerCase() === "z"));
+      if (redoKey) {
+        const next = history.current.redo(snapRef.current);
+        if (next) applySnapshot(next);
+        event.preventDefault();
+        return;
+      }
+      if (undoKey) {
+        const previous = history.current.undo(snapRef.current);
+        if (previous) applySnapshot(previous);
+        event.preventDefault();
+        return;
+      }
+      if ((event.key === "Delete" || event.key === "Backspace") && selectedClipId) {
+        setTimelineClips((prev) => prev.filter((clip) => clip.id !== selectedClipId));
+        setSelectedClipId(null);
+        event.preventDefault();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [applySnapshot, selectedClipId]);
 
   const timelineSurfaceSources = useMemo(() => {
     const result = new Map<string, string>();
@@ -407,6 +474,9 @@ function Studio() {
       }
       setSounds(restored);
       setSelectedSoundId(restored[0]?.id ?? null);
+      // opening a show is not an undoable step
+      history.current.clear();
+      restoring.current = true;
       setSavedAt(project.updatedAt);
       localStorage.setItem(LAST_KEY, project.id);
       if (channelRef.current) sendMedia(channelRef.current, items);
@@ -436,7 +506,7 @@ function Studio() {
 
   const buildProject = useCallback(
     (id = projectId, name = projectName): Project => ({
-      version: 7,
+      version: 8,
       id,
       name,
       updatedAt: Date.now(),
@@ -713,7 +783,8 @@ function Studio() {
         duration: 0,
       };
       blobs.current.set(id, file);
-      added.push(await eng.addSound(item, file));
+      const wave = await decodeWaveform(file);
+      added.push(await eng.addSound({ ...item, peaks: wave?.peaks }, file));
       i++;
     }
     if (added.length) {
@@ -827,6 +898,25 @@ function Studio() {
       };
       if (el.readyState >= 1) setTimeout(check, 300);
       else el.addEventListener("loadeddata", () => setTimeout(check, 300), { once: true });
+      // remember the real length so dropped clips match the file, and its loudness overview
+      const noteLength = () =>
+        setMedia((prev) =>
+          prev.map((m) => (m.id === item.id ? { ...m, duration: el.duration || undefined } : m)),
+        );
+      if (Number.isFinite(el.duration) && el.duration) noteLength();
+      else el.addEventListener("loadedmetadata", noteLength, { once: true });
+      const file = blobs.current.get(item.blobId);
+      if (file)
+        void decodeWaveform(file).then((wave) => {
+          if (!wave) return;
+          setMedia((prev) =>
+            prev.map((m) =>
+              m.id === item.id
+                ? { ...m, peaks: wave.peaks, duration: m.duration ?? wave.duration }
+                : m,
+            ),
+          );
+        });
     }
   };
 
