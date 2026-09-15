@@ -82,6 +82,7 @@ import {
 } from "@/lib/types";
 import { clampCorners, clampPoint, defaultCorners, lockRectAspect, type Pt } from "@/lib/warp";
 import { visuals } from "@/lib/visuals";
+import { decodeWaveform } from "@/lib/waveform";
 
 const title = "Prism — Projection Mapping in Your Browser";
 const description =
@@ -436,7 +437,7 @@ function Studio() {
 
   const buildProject = useCallback(
     (id = projectId, name = projectName): Project => ({
-      version: 7,
+      version: 8,
       id,
       name,
       updatedAt: Date.now(),
