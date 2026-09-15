@@ -406,15 +406,31 @@ export function ShowPanel(p: Props) {
                     </SelectContent>
                   </Select>
                 )}
-                {movementPath && (
+                {maxDuration(clip) !== Infinity && (
                   <Button
                     size="sm"
-                    variant={showLanes ? "default" : "secondary"}
-                    onClick={() => setShowLanes(!showLanes)}
+                    variant="secondary"
+                    onClick={() => patchClip(clip.id, { duration: maxDuration(clip) })}
                   >
-                    <Activity />
-                    Automation
+                    <Ruler />
+                    Fit to clip
                   </Button>
+                )}
+                {movementPath && (
+                  <>
+                    <Button
+                      size="sm"
+                      variant={showLanes ? "default" : "secondary"}
+                      onClick={() => setShowLanes(!showLanes)}
+                    >
+                      <Activity />
+                      Automation
+                    </Button>
+                    <Button size="sm" variant="secondary" onClick={() => setBigLaneClipId(clip.id)}>
+                      <Maximize2 />
+                      Edit movement
+                    </Button>
+                  </>
                 )}
                 <Button
                   size="icon"
