@@ -60,9 +60,16 @@ function makeWindow(route, options = {}) {
   return win;
 }
 
+function showMissingFiles(win) {
+  const message = `Prism could not find its app files.\n\nExpected: ${path.join(root, "index.html")}\n\nPlease re-download and unzip the whole folder, then run Prism.exe again.`;
+  const page = `<body style="background:#0b0d12;color:#e6e8ef;font:14px system-ui;padding:32px;white-space:pre-wrap">${message}</body>`;
+  void win.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(page));
+}
+
 app.whenReady().then(async () => {
   base = await startServer();
-  makeWindow("/");
+  const win = makeWindow("/");
+  if (!fs.existsSync(path.join(root, "index.html"))) showMissingFiles(win);
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) makeWindow("/");
   });
