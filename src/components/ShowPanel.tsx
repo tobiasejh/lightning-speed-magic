@@ -2,9 +2,11 @@ import {
   Activity,
   Copy,
   ExternalLink,
+  Maximize2,
   Pause,
   Play,
   Plus,
+  Ruler,
   Square,
   Trash2,
   Volume2,
@@ -14,6 +16,8 @@ import {
 } from "lucide-react";
 import { useState, type PointerEvent as ReactPointerEvent } from "react";
 
+import { AutomationEditor } from "@/components/AutomationEditor";
+import { AutomationLane, axisOutline } from "@/components/AutomationLane";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -22,16 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  moveNode,
-  pathChain,
-  pathDuration,
-  patchSegment,
-  sampleSegment,
-  snapTimelineTime,
-  timelineLength,
-  withDuration,
-} from "@/lib/timeline";
+import { pathDuration, snapTimelineTime, timelineLength } from "@/lib/timeline";
 import type {
   MediaItem,
   OutputScreen,
@@ -79,138 +74,6 @@ const colors: Record<TimelineTrackKind, string> = {
   audio: "bg-chart-3/70",
   movement: "bg-chart-2/70",
 };
-
-const LANE_HEIGHT = 44;
-
-/** Sampled outline of one axis of a movement path, in lane pixels. */
-const axisOutline = (
-  path: SoundPath,
-  axis: "x" | "y",
-  toX: (time: number) => number,
-  toY: (value: number) => number,
-) => {
-  const points: string[] = [];
-  let time = 0;
-  for (const segment of path.segments) {
-    const length = Math.max(1, segment.durationMs) / 1000;
-    for (let i = 0; i <= 8; i++) {
-      const sample = sampleSegment(path, segment, i / 8);
-      if (!sample) continue;
-      points.push(`${toX(time + (i / 8) * length)},${toY(sample[axis])}`);
-    }
-    time += length;
-  }
-  return points.join(" ");
-};
-
-function AutomationLane(props: {
-  path: SoundPath;
-  clip: TimelineClip;
-  axis: "x" | "y";
-  pixelsPerSecond: number;
-  onPatchPath: (path: SoundPath) => void;
-}) {
-  const { path, clip, axis } = props;
-  const width = Math.max(140, clip.duration * props.pixelsPerSecond);
-  const span = Math.max(0.001, clip.duration);
-  const toX = (time: number) => (Math.max(0, Math.min(span, time)) / span) * width;
-  const toY = (value: number) => ((value + 1) / 2) * LANE_HEIGHT;
-  const fromY = (py: number) => Math.max(-1, Math.min(1, (py / LANE_HEIGHT) * 2 - 1));
-  const chain = pathChain(path);
-
-  const dragHandle =
-    (index: number, nodeId: string) => (event: ReactPointerEvent<SVGCircleElement>) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const target = event.currentTarget;
-      const svg = target.ownerSVGElement ?? target;
-      const rect = svg.getBoundingClientRect();
-      target.setPointerCapture(event.pointerId);
-      // snapshot: every move recomputes from this, so drags never accumulate
-      const base = path;
-      const baseChain = pathChain(base);
-      const previous = base.segments[index - 1];
-      const next = base.segments[index];
-      const startTime = baseChain[index]?.time ?? 0;
-      const prevTime = baseChain[index - 1]?.time ?? 0;
-      const nextTime = baseChain[index + 1]?.time;
-      const startX = rect.left + toX(startTime);
-      const startY =
-        rect.top + toY(base.nodes.find((item) => item.id === nodeId)?.position[axis] ?? 0);
-      let latest = base;
-
-      const move = (ev: PointerEvent) => {
-        const node = base.nodes.find((item) => item.id === nodeId);
-        if (!node) return;
-        latest = moveNode(base, nodeId, {
-          ...node.position,
-          [axis]: fromY(ev.clientY - startY + toY(node.position[axis])),
-        });
-        // horizontal drag retimes the two lines around this point, in real seconds
-        if (previous) {
-          const raw = ((ev.clientX - startX) / width) * span + startTime;
-          const upper = nextTime !== undefined ? nextTime - 0.02 : span;
-          const wanted = Math.max(prevTime + 0.02, Math.min(upper, raw));
-          latest = patchSegment(latest, previous.id, {
-            durationMs: Math.max(20, Math.round((wanted - prevTime) * 1000)),
-          });
-          if (next && nextTime !== undefined)
-            latest = patchSegment(latest, next.id, {
-              durationMs: Math.max(20, Math.round((nextTime - wanted) * 1000)),
-            });
-        }
-        props.onPatchPath(withDuration(latest));
-      };
-      const up = () => {
-        target.removeEventListener("pointermove", move);
-        target.removeEventListener("pointerup", up);
-        props.onPatchPath(withDuration(latest));
-      };
-      target.addEventListener("pointermove", move);
-      target.addEventListener("pointerup", up);
-    };
-
-  return (
-    <div className="space-y-1">
-      <span className="text-[10px] uppercase text-muted-foreground">
-        {axis === "x" ? "Position X (left ↔ right)" : "Position Y (front ↔ back)"}
-      </span>
-      <svg
-        width={width}
-        height={LANE_HEIGHT}
-        className="rounded border border-border bg-muted/20"
-        style={{ touchAction: "none" }}
-      >
-        <line
-          x1={0}
-          x2={width}
-          y1={LANE_HEIGHT / 2}
-          y2={LANE_HEIGHT / 2}
-          className="stroke-border"
-        />
-        <polyline
-          points={axisOutline(path, axis, toX, toY)}
-          className="fill-none stroke-primary"
-          strokeWidth={2}
-        />
-        {chain.map((entry, index) => {
-          const node = path.nodes.find((item) => item.id === entry.nodeId);
-          if (!node) return null;
-          return (
-            <circle
-              key={`${entry.nodeId}-${index}`}
-              cx={toX(entry.time)}
-              cy={toY(node.position[axis])}
-              r={5}
-              className="cursor-grab fill-foreground"
-              onPointerDown={dragHandle(index, entry.nodeId)}
-            />
-          );
-        })}
-      </svg>
-    </div>
-  );
-}
 
 export function ShowPanel(p: Props) {
   const [showLanes, setShowLanes] = useState(true);
