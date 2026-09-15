@@ -468,8 +468,9 @@ export function ShowPanel(p: Props) {
                       key={axis}
                       axis={axis}
                       path={movementPath}
-                      clip={clip}
-                      pixelsPerSecond={pixelsPerSecond}
+                      span={clip.duration}
+                      width={Math.max(320, clip.duration * pixelsPerSecond)}
+                      peaks={clipPeaks(clip)}
                       onPatchPath={p.onPatchPath}
                     />
                   ))}
