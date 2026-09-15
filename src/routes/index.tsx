@@ -258,6 +258,71 @@ function Studio() {
 
   const selected = surfaces.find((s) => s.id === selectedId) ?? surfaces[0] ?? null;
 
+  // ----- undo / redo -----
+  const history = useRef(new History());
+  const restoring = useRef(false);
+  const snapshot = useMemo<ShowSnapshot>(
+    () => ({
+      surfaces,
+      tracks: timelineTracks,
+      clips: timelineClips,
+      paths: soundPaths,
+      outputs,
+      room,
+      globals,
+    }),
+    [surfaces, timelineTracks, timelineClips, soundPaths, outputs, room, globals],
+  );
+  const snapRef = useRef(snapshot);
+  useEffect(() => {
+    if (restoring.current) restoring.current = false;
+    else if (loaded) history.current.push(snapRef.current);
+    snapRef.current = snapshot;
+  }, [snapshot, loaded]);
+
+  const applySnapshot = useCallback((s: ShowSnapshot) => {
+    restoring.current = true;
+    setSurfaces(s.surfaces);
+    setTimelineTracks(s.tracks);
+    setTimelineClips(s.clips);
+    setSoundPaths(s.paths);
+    setOutputs(s.outputs);
+    setRoom(s.room);
+    setGlobals(s.globals);
+  }, []);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const el = event.target as HTMLElement | null;
+      // let people type (and use the browser's own undo) inside fields
+      if (el && (el.closest("input, textarea, [contenteditable='true']") || el.isContentEditable))
+        return;
+      const undoKey = (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z";
+      const redoKey =
+        (event.metaKey || event.ctrlKey) &&
+        (event.key.toLowerCase() === "y" || (event.shiftKey && event.key.toLowerCase() === "z"));
+      if (redoKey) {
+        const next = history.current.redo(snapRef.current);
+        if (next) applySnapshot(next);
+        event.preventDefault();
+        return;
+      }
+      if (undoKey) {
+        const previous = history.current.undo(snapRef.current);
+        if (previous) applySnapshot(previous);
+        event.preventDefault();
+        return;
+      }
+      if ((event.key === "Delete" || event.key === "Backspace") && selectedClipId) {
+        setTimelineClips((prev) => prev.filter((clip) => clip.id !== selectedClipId));
+        setSelectedClipId(null);
+        event.preventDefault();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [applySnapshot, selectedClipId]);
+
   const timelineSurfaceSources = useMemo(() => {
     const result = new Map<string, string>();
     for (const clip of activeClipsAt(timelineTracks, timelineClips, showTime)) {
