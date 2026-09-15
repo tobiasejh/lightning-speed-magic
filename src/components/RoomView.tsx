@@ -285,6 +285,11 @@ export function RoomView(p: Props) {
                   fill="none"
                   className="cursor-pointer"
                   onPointerDown={segmentPointerDown(segment.id)}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    p.onSavePath(withDuration(removeSegment(path, segment.id)));
+                    setSelectedSegmentId(null);
+                  }}
                 />
                 <path
                   d={d}
