@@ -215,7 +215,7 @@ export function RoomView(p: Props) {
             <span className="text-muted-foreground">Line</span>
             <Input
               type="number"
-              min={20}
+              min={0}
               step={50}
               className="h-7 w-24"
               value={Math.round(selectedSegment.durationMs)}
@@ -224,7 +224,7 @@ export function RoomView(p: Props) {
                 p.onSavePath(
                   withDuration(
                     patchSegment(path, selectedSegment.id, {
-                      durationMs: Math.max(20, Number(event.target.value) || 20),
+                      durationMs: Math.max(0, Number(event.target.value) || 0),
                     }),
                   ),
                 )
