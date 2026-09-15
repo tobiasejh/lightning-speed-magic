@@ -179,10 +179,17 @@ export function ShowPanel(p: Props) {
       const move = (ev: PointerEvent) => {
         const delta = (ev.clientX - startX) / pixelsPerSecond;
         if (side === "end")
-          patchClip(clip.id, { duration: Math.max(0.25, original.duration + delta) });
+          patchClip(clip.id, {
+            // never longer than the material that is left in the file
+            duration: Math.min(
+              maxDuration(clip, original.inPoint),
+              Math.max(0.25, original.duration + delta),
+            ),
+          });
         else {
+          const earliest = original.start - original.inPoint;
           const nextStart = Math.max(
-            0,
+            Math.max(0, earliest),
             Math.min(original.start + original.duration - 0.25, original.start + delta),
           );
           const change = nextStart - original.start;
