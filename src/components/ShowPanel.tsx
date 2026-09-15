@@ -487,6 +487,23 @@ export function ShowPanel(p: Props) {
           );
         })()}
 
+      {bigLaneClipId &&
+        (() => {
+          const clip = p.clips.find((item) => item.id === bigLaneClipId);
+          const path = clip?.pathId ? p.paths.find((item) => item.id === clip.pathId) : undefined;
+          if (!clip || !path) return null;
+          return (
+            <AutomationEditor
+              path={path}
+              clip={clip}
+              time={p.time}
+              peaks={clipPeaks(clip)}
+              onPatchPath={p.onPatchPath}
+              onClose={() => setBigLaneClipId(null)}
+            />
+          );
+        })()}
+
       {p.tracks.map((track) => (
         <div key={`add-${track.id}`} className="flex items-center gap-2">
           <span className="w-28 truncate text-[10px] text-muted-foreground">
