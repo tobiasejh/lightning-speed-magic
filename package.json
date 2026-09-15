@@ -11,7 +11,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "build:desktop": "vite build --config vite.electron.config.ts",
-    "package:win": "vite build --config vite.electron.config.ts && electron-packager . Prism --platform=win32 --arch=x64 --out=electron-release --overwrite --ignore=\"^/node_modules\" --ignore=\"^/src\" --ignore=\"^/supabase\" --ignore=\"^/electron-release\""
+    "package:win": "node scripts/package-desktop.mjs"
   },
   "overrides": {
     "rolldown": "1.2.1"
