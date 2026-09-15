@@ -25,7 +25,7 @@ export const Route = createFileRoute("/output")({
   component: OutputPage,
 });
 
-function OutputPage() {
+export function OutputPage() {
   const [snap, setSnap] = useState<OutputSnapshot>({
     surfaces: [],
     globals: defaultGlobals(),

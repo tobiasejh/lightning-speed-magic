@@ -196,7 +196,7 @@ const newVideoSound = (m: Omit<MediaItem, "url">, i: number, playing: boolean): 
   mediaId: m.id,
 });
 
-function Studio() {
+export function Studio() {
   const [projectId, setProjectId] = useState(() => `p${Date.now()}`);
   const [projectName, setProjectName] = useState("Untitled show");
   const [savedAt, setSavedAt] = useState<number | null>(null);
