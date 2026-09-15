@@ -165,14 +165,14 @@ export const splitSegment = (path: SoundPath, segmentId: string, t: number): Sou
     id: uid("s"),
     fromId: segment.fromId,
     toId: node.id,
-    durationMs: Math.max(20, Math.round(segment.durationMs * clamped)),
+    durationMs: Math.max(0, Math.round(segment.durationMs * clamped)),
     curve: curveFromControl(ends.a, mid, a1),
   };
   const second: PathSegment = {
     id: uid("s"),
     fromId: node.id,
     toId: segment.toId,
-    durationMs: Math.max(20, Math.round(segment.durationMs * (1 - clamped))),
+    durationMs: Math.max(0, Math.round(segment.durationMs * (1 - clamped))),
     curve: curveFromControl(mid, ends.b, b1),
   };
   const index = (path.segments ?? []).findIndex((item) => item.id === segmentId);
