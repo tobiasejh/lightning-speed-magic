@@ -53,10 +53,10 @@
 
 ## v7
 
-- [ ] One show canvas split across projectors, each with its own region
-- [ ] Edge blending per side (fade width, brightness, curve) plus blend test field
-- [ ] Manual surface resolution with presets, match source, and locked shape
-- [ ] Saved shows reopen with the chosen clip and automation selected
-- [ ] Save problems shown instead of silently ignored
-- [ ] Projector windows follow the editor timeline clock
-- [ ] Verified in browser
+- [x] One show canvas split across projectors, each with its own region
+- [x] Edge blending per side (fade width, brightness, curve) plus blend test field
+- [x] Manual surface resolution with presets, match source, and locked shape
+- [x] Saved shows reopen with the chosen clip and automation selected
+- [x] Save problems shown instead of silently ignored
+- [x] Projector windows follow the editor timeline clock
+- [x] Verified in browser
