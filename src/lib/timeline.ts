@@ -65,7 +65,7 @@ export const emptyPath = (id: string, name: string, soundId: string): SoundPath 
 });
 
 export const pathDuration = (path: SoundPath) =>
-  (path.segments ?? []).reduce((total, segment) => total + Math.max(1, segment.durationMs), 0) /
+  (path.segments ?? []).reduce((total, segment) => total + Math.max(0, segment.durationMs), 0) /
   1000;
 
 export const withDuration = (path: SoundPath): SoundPath => ({
