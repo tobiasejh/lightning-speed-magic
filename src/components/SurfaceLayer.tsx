@@ -69,6 +69,7 @@ const fitVideo = (
 export function SurfaceLayer({ surface, index, stage, globals, testPattern, levels }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const videoFrameRef = useRef<HTMLDivElement | null>(null);
   const [mediaVersion, setMediaVersion] = useState(0);
   const [videoSize, setVideoSize] = useState({ w: 0, h: 0 });
   const latest = useRef({ surface, globals, levels, testPattern, index });
@@ -234,6 +235,26 @@ export function SurfaceLayer({ surface, index, stage, globals, testPattern, leve
     };
   }, [directVideo, mediaId, mediaVersion]);
 
+  useEffect(() => {
+    if (!directVideo) return;
+    let raf = 0;
+
+    const frame = () => {
+      const el = videoFrameRef.current;
+      if (el) {
+        const { surface: s, globals: g, levels: lv } = latest.current;
+        const bass = g.audioReactive && lv ? lv(s.audioSource).bass : silentLevels.bass;
+        const pulse = 1 + bass * 0.08;
+        const rotation = ((s.rotate % 360) + 360) % 360;
+        el.style.transform = `translate(-50%, -50%) rotate(${rotation}deg) scale(${(s.flipH ? -1 : 1) * pulse}, ${(s.flipV ? -1 : 1) * pulse})`;
+      }
+      raf = requestAnimationFrame(frame);
+    };
+
+    raf = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(raf);
+  }, [directVideo]);
+
   const px = surface.corners.map((c) => ({ x: c.x * stage.w, y: c.y * stage.h }));
   const rotate = ((surface.rotate % 360) + 360) % 360;
   const swap = rotate % 180 !== 0;
@@ -278,6 +299,7 @@ export function SurfaceLayer({ surface, index, stage, globals, testPattern, leve
         />
       ) : (
         <div
+          ref={videoFrameRef}
           className="absolute overflow-hidden bg-background"
           style={{
             left: "50%",
