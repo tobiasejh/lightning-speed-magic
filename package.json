@@ -11,7 +11,8 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "build:desktop": "vite build --config vite.electron.config.ts",
-    "package:win": "node scripts/package-desktop.mjs"
+    "package:win": "node scripts/package-desktop.mjs",
+    "electron:build": "electron-builder --win"
   },
   "overrides": {
     "rolldown": "1.2.1"
@@ -97,10 +98,7 @@
     "typescript-eslint": "^8.56.1",
     "vite": "8.1.5"
   },
-  "main": "electron/main.cjs"
- "scripts": {
-    "electron:build": "electron-builder --win"
-  },
+  "main": "electron/main.cjs",
   "build": {
     "appId": "com.tobias.prism",
     "productName": "Prism",

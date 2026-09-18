@@ -18,8 +18,8 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Build web app
-        run: npm run build
+      - name: Build web app for desktop
+        run: npm run build:desktop
 
       - name: Build Electron exe
         run: npm run electron:build
@@ -46,7 +46,7 @@ jobs:
         with:
           node-version: 20
       - run: npm install
-      - run: npm run build
+      - run: npm run build:desktop
       - name: Build and publish exe
         run: npx electron-builder --win --publish always
         env:
