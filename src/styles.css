@@ -141,4 +141,28 @@
     background-color: var(--color-background);
     color: var(--color-foreground);
   }
+
+  * {
+    scrollbar-color: var(--muted-foreground) var(--background);
+    scrollbar-width: thin;
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: var(--background);
+  }
+
+  *::-webkit-scrollbar-thumb {
+    border: 2px solid var(--background);
+    border-radius: var(--radius-sm);
+    background: var(--muted-foreground);
+  }
+
+  *::-webkit-scrollbar-corner {
+    background: var(--background);
+  }
 }

@@ -129,6 +129,11 @@ const RESOLUTION_PRESETS = [
   { label: "800×600", w: 800, h: 600 },
 ];
 
+const MENU_WIDTH_KEY = "prism-menu-width";
+const DEFAULT_MENU_WIDTH = 352;
+const MIN_MENU_WIDTH = 280;
+const MAX_MENU_WIDTH = 640;
+
 /** Fill in fields older saved surfaces may lack. */
 const upgradeSurface = (
   s: Partial<Surface> & Pick<Surface, "id" | "corners" | "source">,
@@ -240,6 +245,7 @@ export function Studio() {
   const [deviceId, setDeviceId] = useState("default");
   const [maxChannels, setMaxChannels] = useState(2);
   const [loaded, setLoaded] = useState(false);
+  const [menuWidth, setMenuWidth] = useState(DEFAULT_MENU_WIDTH);
 
   const micRef = useRef<MicAnalyser | null>(null);
   const engineRef = useRef<SpatialEngine | null>(null);
@@ -256,6 +262,38 @@ export function Studio() {
   useEffect(() => {
     surfacesRef.current = surfaces;
   }, [surfaces]);
+
+  useEffect(() => {
+    const savedWidth = Number(window.localStorage.getItem(MENU_WIDTH_KEY));
+    if (Number.isFinite(savedWidth)) {
+      setMenuWidth(Math.max(MIN_MENU_WIDTH, Math.min(MAX_MENU_WIDTH, savedWidth)));
+    }
+  }, []);
+
+  const resizeMenu = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const handle = event.currentTarget;
+    handle.setPointerCapture(event.pointerId);
+    const move = (pointerEvent: PointerEvent) => {
+      const nextWidth = Math.max(
+        MIN_MENU_WIDTH,
+        Math.min(MAX_MENU_WIDTH, pointerEvent.clientX),
+      );
+      setMenuWidth(nextWidth);
+    };
+    const stop = () => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", stop);
+      handle.removeEventListener("pointercancel", stop);
+      setMenuWidth((width) => {
+        window.localStorage.setItem(MENU_WIDTH_KEY, String(width));
+        return width;
+      });
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", stop);
+    handle.addEventListener("pointercancel", stop);
+  };
 
   const selected = surfaces.find((s) => s.id === selectedId) ?? surfaces[0] ?? null;
 
