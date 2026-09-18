@@ -69,3 +69,11 @@
 - [x] Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y undo and redo for show edits
 - [x] Dropped visuals take the length of their file; dragging stops at the file's end; "Fit to clip"
 - [x] Portable Windows app (unzip, run Prism.exe) built from a client-only bundle
+
+## Interface polish
+
+- [x] Resizable desktop menu with a saved width
+- [x] Dark themed scrollbars and no menu horizontal scrollbar
+- [x] Long timeline source names stay inside their selector
+- [x] Timeline moved into its own main workspace tab
+- [ ] Verify the updated layout and timeline workflow in the browser

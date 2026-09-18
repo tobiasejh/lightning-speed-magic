@@ -44,7 +44,7 @@ export function MappingToolbar(p: Props) {
             ? "Crop, cut and sync your photos and videos before projecting them."
             : p.view === "timeline"
               ? "Arrange visual, audio and movement clips across the show."
-            : "Drag the corner dots so each shape lines up with the real surface. Hold Shift to skip snapping."}
+              : "Drag the corner dots so each shape lines up with the real surface. Hold Shift to skip snapping."}
       </p>
       <Button
         size="sm"

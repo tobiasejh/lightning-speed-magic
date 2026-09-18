@@ -284,10 +284,7 @@ export function Studio() {
     const handle = event.currentTarget;
     handle.setPointerCapture(event.pointerId);
     const move = (pointerEvent: PointerEvent) => {
-      const nextWidth = Math.max(
-        MIN_MENU_WIDTH,
-        Math.min(MAX_MENU_WIDTH, pointerEvent.clientX),
-      );
+      const nextWidth = Math.max(MIN_MENU_WIDTH, Math.min(MAX_MENU_WIDTH, pointerEvent.clientX));
       setMenuWidth(nextWidth);
     };
     const stop = () => {

@@ -122,7 +122,10 @@ const SelectItem = React.forwardRef<
       </SelectPrimitive.ItemIndicator>
     </span>
     <SelectPrimitive.ItemText asChild>
-      <span className="block min-w-0 truncate" title={typeof children === "string" ? children : undefined}>
+      <span
+        className="block min-w-0 truncate"
+        title={typeof children === "string" ? children : undefined}
+      >
         {children}
       </span>
     </SelectPrimitive.ItemText>
