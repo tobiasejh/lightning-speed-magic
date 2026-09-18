@@ -62,6 +62,7 @@
 - [x] Verified in browser
 
 ## Version 8 — the standalone app
+
 - [x] Waveform of the linked sound behind the movement lanes
 - [x] Full-screen "Edit movement" panel with ruler and playhead
 - [x] Clips deletable: select + Delete/Backspace, inspector button, right-click
