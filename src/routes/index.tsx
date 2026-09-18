@@ -273,7 +273,9 @@ export function Studio() {
   }, [surfaces]);
 
   useEffect(() => {
-    const savedWidth = Number(window.localStorage.getItem(MENU_WIDTH_KEY));
+    const storedWidth = window.localStorage.getItem(MENU_WIDTH_KEY);
+    if (storedWidth === null) return;
+    const savedWidth = Number(storedWidth);
     if (Number.isFinite(savedWidth)) {
       setMenuWidth(Math.max(MIN_MENU_WIDTH, Math.min(MAX_MENU_WIDTH, savedWidth)));
     }

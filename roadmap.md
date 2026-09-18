@@ -76,4 +76,4 @@
 - [x] Dark themed scrollbars and no menu horizontal scrollbar
 - [x] Long timeline source names stay inside their selector
 - [x] Timeline moved into its own main workspace tab
-- [ ] Verify the updated layout and timeline workflow in the browser
+- [x] Verify the updated layout and timeline workflow in the browser
