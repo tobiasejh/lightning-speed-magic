@@ -22,7 +22,7 @@ jobs:
         run: npm run build:desktop
 
       - name: Build Electron exe
-        run: npm run electron:build
+        run: npx electron-builder --win --publish never
 
       - name: Upload exe as workflow artifact
         uses: actions/upload-artifact@v4
