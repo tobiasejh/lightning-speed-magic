@@ -62,6 +62,7 @@
 - [x] Verified in browser
 
 ## Version 8 — the standalone app
+
 - [x] Waveform of the linked sound behind the movement lanes
 - [x] Full-screen "Edit movement" panel with ruler and playhead
 - [x] Clips deletable: select + Delete/Backspace, inspector button, right-click
@@ -69,3 +70,11 @@
 - [x] Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y undo and redo for show edits
 - [x] Dropped visuals take the length of their file; dragging stops at the file's end; "Fit to clip"
 - [x] Portable Windows app (unzip, run Prism.exe) built from a client-only bundle
+
+## Interface polish
+
+- [x] Resizable desktop menu with a saved width
+- [x] Dark themed scrollbars and no menu horizontal scrollbar
+- [x] Long timeline source names stay inside their selector
+- [x] Timeline moved into its own main workspace tab
+- [x] Verify the updated layout and timeline workflow in the browser

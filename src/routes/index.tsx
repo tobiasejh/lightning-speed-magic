@@ -16,7 +16,16 @@ import {
   Upload,
   Zap,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
 
 import { MappingToolbar, type StageView } from "@/components/MappingToolbar";
 import { MediaEditor } from "@/components/MediaEditor";
@@ -129,6 +138,11 @@ const RESOLUTION_PRESETS = [
   { label: "800×600", w: 800, h: 600 },
 ];
 
+const MENU_WIDTH_KEY = "prism-menu-width";
+const DEFAULT_MENU_WIDTH = 352;
+const MIN_MENU_WIDTH = 280;
+const MAX_MENU_WIDTH = 640;
+
 /** Fill in fields older saved surfaces may lack. */
 const upgradeSurface = (
   s: Partial<Surface> & Pick<Surface, "id" | "corners" | "source">,
@@ -240,6 +254,7 @@ export function Studio() {
   const [deviceId, setDeviceId] = useState("default");
   const [maxChannels, setMaxChannels] = useState(2);
   const [loaded, setLoaded] = useState(false);
+  const [menuWidth, setMenuWidth] = useState(DEFAULT_MENU_WIDTH);
 
   const micRef = useRef<MicAnalyser | null>(null);
   const engineRef = useRef<SpatialEngine | null>(null);
@@ -256,6 +271,37 @@ export function Studio() {
   useEffect(() => {
     surfacesRef.current = surfaces;
   }, [surfaces]);
+
+  useEffect(() => {
+    const storedWidth = window.localStorage.getItem(MENU_WIDTH_KEY);
+    if (storedWidth === null) return;
+    const savedWidth = Number(storedWidth);
+    if (Number.isFinite(savedWidth)) {
+      setMenuWidth(Math.max(MIN_MENU_WIDTH, Math.min(MAX_MENU_WIDTH, savedWidth)));
+    }
+  }, []);
+
+  const resizeMenu = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const handle = event.currentTarget;
+    handle.setPointerCapture(event.pointerId);
+    const move = (pointerEvent: PointerEvent) => {
+      const nextWidth = Math.max(MIN_MENU_WIDTH, Math.min(MAX_MENU_WIDTH, pointerEvent.clientX));
+      setMenuWidth(nextWidth);
+    };
+    const stop = () => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", stop);
+      handle.removeEventListener("pointercancel", stop);
+      setMenuWidth((width) => {
+        window.localStorage.setItem(MENU_WIDTH_KEY, String(width));
+        return width;
+      });
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", stop);
+    handle.addEventListener("pointercancel", stop);
+  };
 
   const selected = surfaces.find((s) => s.id === selectedId) ?? surfaces[0] ?? null;
 
@@ -1214,9 +1260,12 @@ export function Studio() {
   }, [surfaces, remoteConnected]);
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground lg:flex-row">
+    <div
+      className="flex h-screen flex-col overflow-hidden bg-background text-foreground lg:flex-row"
+      style={{ "--menu-width": `${menuWidth}px` } as CSSProperties}
+    >
       <aside
-        className={`flex w-full shrink-0 flex-col gap-5 overflow-y-auto border-b border-border bg-card/60 p-4 lg:h-full lg:w-[22rem] lg:border-b-0 lg:border-r ${
+        className={`flex w-full min-w-0 shrink-0 flex-col gap-5 overflow-x-hidden overflow-y-auto border-b border-border bg-card/60 p-4 lg:h-full lg:w-(--menu-width) lg:border-b-0 lg:border-r ${
           fullscreen ? "hidden" : ""
         }`}
       >
@@ -1315,70 +1364,6 @@ export function Studio() {
               onValueChange={([v = 0]) => setGlobals((g) => ({ ...g, brightness: v }))}
             />
           </Labeled>
-        </section>
-
-        {/* Show */}
-        <section className="space-y-3">
-          <SectionTitle>Show</SectionTitle>
-          {saveError && (
-            <p
-              role="alert"
-              className="rounded border border-destructive/60 p-2 text-xs text-destructive"
-            >
-              {saveError}
-            </p>
-          )}
-          <ShowPanel
-            tracks={timelineTracks}
-            clips={timelineClips}
-            media={media}
-            sounds={sounds}
-            paths={soundPaths}
-            surfaces={surfaces}
-            outputs={outputs}
-            openOutputs={openOutputs}
-            playing={showPlaying}
-            time={showTime}
-            zoom={timelineZoom}
-            selectedClipId={selectedClipId}
-            onTracks={setTimelineTracks}
-            onClips={setTimelineClips}
-            onSelectClip={setSelectedClipId}
-            onPlay={runShow}
-            onPause={pauseShow}
-            onStop={stopShow}
-            onSeek={seekShow}
-            onZoom={setTimelineZoom}
-            onAddOutput={() =>
-              setOutputs((prev) => [
-                ...prev,
-                {
-                  id: `out${prev.length + 1}`,
-                  name: `Projector ${prev.length + 1}`,
-                  region: defaultRegion(),
-                  blend: defaultBlend(),
-                },
-              ])
-            }
-            onRemoveOutput={(id) => {
-              setOutputs((prev) => prev.filter((o) => o.id !== id));
-              setSurfaces((prev) =>
-                prev.map((s) => (s.outputId === id ? { ...s, outputId: "out1" } : s)),
-              );
-            }}
-            onPatchOutput={(id, next) =>
-              setOutputs((prev) => prev.map((o) => (o.id === id ? { ...o, ...next } : o)))
-            }
-            onSplitOutputs={(overlap) => setOutputs((prev) => splitOutputsEvenly(prev, overlap))}
-            onOpenOutput={openOutput}
-            onPatchPath={(path) =>
-              setSoundPaths((prev) =>
-                prev.some((item) => item.id === path.id)
-                  ? prev.map((item) => (item.id === path.id ? path : item))
-                  : [...prev, path],
-              )
-            }
-          />
         </section>
 
         {/* Look */}
@@ -1800,6 +1785,33 @@ export function Studio() {
         </section>
       </aside>
 
+      {!fullscreen && (
+        <div
+          role="separator"
+          aria-label="Resize menu"
+          aria-orientation="vertical"
+          aria-valuemin={MIN_MENU_WIDTH}
+          aria-valuemax={MAX_MENU_WIDTH}
+          aria-valuenow={menuWidth}
+          tabIndex={0}
+          onPointerDown={resizeMenu}
+          onKeyDown={(event) => {
+            if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+            event.preventDefault();
+            const direction = event.key === "ArrowLeft" ? -1 : 1;
+            const nextWidth = Math.max(
+              MIN_MENU_WIDTH,
+              Math.min(MAX_MENU_WIDTH, menuWidth + direction * 16),
+            );
+            setMenuWidth(nextWidth);
+            window.localStorage.setItem(MENU_WIDTH_KEY, String(nextWidth));
+          }}
+          className="group relative z-40 hidden w-1 shrink-0 cursor-col-resize touch-none bg-border outline-none lg:block"
+        >
+          <span className="absolute inset-y-0 -left-1 -right-1 transition-colors group-hover:bg-primary/30 group-focus-visible:bg-primary/40" />
+        </div>
+      )}
+
       {/* Stage */}
       <main className="relative flex min-h-0 flex-1 flex-col bg-black">
         {!fullscreen && (
@@ -1884,6 +1896,77 @@ export function Studio() {
               }}
               onDelete={removeMedia}
             />
+          )}
+          {view === "timeline" && !fullscreen && (
+            <div className="absolute inset-0 z-30 min-w-0 overflow-y-auto bg-background p-4 lg:p-6">
+              <div className="mx-auto w-full max-w-[96rem]">
+                {saveError && (
+                  <p
+                    role="alert"
+                    className="mb-3 rounded border border-destructive/60 p-2 text-xs text-destructive"
+                  >
+                    {saveError}
+                  </p>
+                )}
+                <ShowPanel
+                  tracks={timelineTracks}
+                  clips={timelineClips}
+                  media={media}
+                  sounds={sounds}
+                  paths={soundPaths}
+                  surfaces={surfaces}
+                  outputs={outputs}
+                  openOutputs={openOutputs}
+                  playing={showPlaying}
+                  time={showTime}
+                  zoom={timelineZoom}
+                  selectedClipId={selectedClipId}
+                  onTracks={setTimelineTracks}
+                  onClips={setTimelineClips}
+                  onSelectClip={setSelectedClipId}
+                  onPlay={runShow}
+                  onPause={pauseShow}
+                  onStop={stopShow}
+                  onSeek={seekShow}
+                  onZoom={setTimelineZoom}
+                  onAddOutput={() =>
+                    setOutputs((prev) => [
+                      ...prev,
+                      {
+                        id: `out${prev.length + 1}`,
+                        name: `Projector ${prev.length + 1}`,
+                        region: defaultRegion(),
+                        blend: defaultBlend(),
+                      },
+                    ])
+                  }
+                  onRemoveOutput={(id) => {
+                    setOutputs((prev) => prev.filter((output) => output.id !== id));
+                    setSurfaces((prev) =>
+                      prev.map((surface) =>
+                        surface.outputId === id ? { ...surface, outputId: "out1" } : surface,
+                      ),
+                    );
+                  }}
+                  onPatchOutput={(id, next) =>
+                    setOutputs((prev) =>
+                      prev.map((output) => (output.id === id ? { ...output, ...next } : output)),
+                    )
+                  }
+                  onSplitOutputs={(overlap) =>
+                    setOutputs((prev) => splitOutputsEvenly(prev, overlap))
+                  }
+                  onOpenOutput={openOutput}
+                  onPatchPath={(path) =>
+                    setSoundPaths((prev) =>
+                      prev.some((item) => item.id === path.id)
+                        ? prev.map((item) => (item.id === path.id ? path : item))
+                        : [...prev, path],
+                    )
+                  }
+                />
+              </div>
+            </div>
           )}
           {!fullscreen && view === "stage" && (
             <svg className="pointer-events-none absolute inset-0 size-full">

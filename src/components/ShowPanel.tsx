@@ -78,6 +78,7 @@ const colors: Record<TimelineTrackKind, string> = {
 export function ShowPanel(p: Props) {
   const [showLanes, setShowLanes] = useState(true);
   const [bigLaneClipId, setBigLaneClipId] = useState<string | null>(null);
+  const [chosenSources, setChosenSources] = useState<Record<string, string>>({});
 
   /** How much material a clip has, in seconds, or null when it has no fixed length. */
   const sourceLength = (clip: TimelineClip): number | null => {
@@ -218,7 +219,7 @@ export function ShowPanel(p: Props) {
     kind === "visual" ? p.media : kind === "audio" ? p.sounds : p.paths;
 
   return (
-    <div className="space-y-3">
+    <div className="min-w-0 space-y-3">
       <div className="flex flex-wrap items-center gap-1.5">
         <Button size="sm" onClick={p.playing ? p.onPause : p.onPlay} disabled={!p.clips.length}>
           {p.playing ? <Pause /> : <Play />}
@@ -505,20 +506,29 @@ export function ShowPanel(p: Props) {
         })()}
 
       {p.tracks.map((track) => (
-        <div key={`add-${track.id}`} className="flex items-center gap-2">
+        <div key={`add-${track.id}`} className="flex min-w-0 items-center gap-2">
           <span className="w-28 truncate text-[10px] text-muted-foreground">
             + Add clip to {track.name}
           </span>
-          <Select onValueChange={(id) => addClip(track, id)}>
-            <SelectTrigger className="h-7 flex-1">
+          <Select
+            value={chosenSources[track.id] ?? ""}
+            onValueChange={(id) => {
+              setChosenSources((current) => ({ ...current, [track.id]: id }));
+              addClip(track, id);
+            }}
+          >
+            <SelectTrigger
+              className="h-7 min-w-0 flex-1"
+              title={sources(track.kind).find((item) => item.id === chosenSources[track.id])?.name}
+            >
               <Plus />
               <SelectValue
                 placeholder={sources(track.kind).length ? "Choose clip" : "No available clips"}
               />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="max-w-[min(32rem,calc(100vw-2rem))]">
               {sources(track.kind).map((item) => (
-                <SelectItem key={item.id} value={item.id}>
+                <SelectItem key={item.id} value={item.id} className="max-w-full">
                   {item.name}
                 </SelectItem>
               ))}

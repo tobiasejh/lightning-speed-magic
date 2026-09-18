@@ -1,4 +1,4 @@
-import { Film, Grid3x3, Magnet, Monitor, Move, Smartphone, Volume2 } from "lucide-react";
+import { Clock3, Film, Grid3x3, Magnet, Monitor, Move, Smartphone, Volume2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/select";
 import type { TestPattern } from "@/lib/types";
 
-export type StageView = "stage" | "room" | "editor";
+export type StageView = "stage" | "room" | "editor" | "timeline";
 
 type Props = {
   mapping: boolean;
@@ -42,7 +42,9 @@ export function MappingToolbar(p: Props) {
           ? "Drag sound icons, the listener and speakers to place them in the room."
           : p.view === "editor"
             ? "Crop, cut and sync your photos and videos before projecting them."
-            : "Drag the corner dots so each shape lines up with the real surface. Hold Shift to skip snapping."}
+            : p.view === "timeline"
+              ? "Arrange visual, audio and movement clips across the show."
+              : "Drag the corner dots so each shape lines up with the real surface. Hold Shift to skip snapping."}
       </p>
       <Button
         size="sm"
@@ -64,6 +66,13 @@ export function MappingToolbar(p: Props) {
         onClick={() => p.onView("editor")}
       >
         <Film className="size-4" /> Editor
+      </Button>
+      <Button
+        size="sm"
+        variant={p.view === "timeline" ? "default" : "secondary"}
+        onClick={() => p.onView("timeline")}
+      >
+        <Clock3 className="size-4" /> Timeline
       </Button>
       <Button size="sm" variant={p.mapping ? "default" : "secondary"} onClick={p.onMapping}>
         <Move className="size-4" /> {p.mapping ? "Mapping on" : "Mapping off"}
