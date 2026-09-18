@@ -1,6 +1,7 @@
 // Prism desktop shell. The built app is served over a local HTTP server rather
 // than file:// so that browser storage (saved shows) and popup projector windows work.
 const { app, BrowserWindow, shell } = require("electron");
+const { autoUpdater } = require("electron-updater"); // <-- ADDED
 const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -70,6 +71,12 @@ app.whenReady().then(async () => {
   base = await startServer();
   const win = makeWindow("/");
   if (!fs.existsSync(path.join(root, "index.html"))) showMissingFiles(win);
+
+  // ADDED: checks GitHub Releases for a newer version, downloads it in the
+  // background, then prompts the user to restart and install. Only works in
+  // a packaged (built) exe, not when running via `electron .` in dev.
+  autoUpdater.checkForUpdatesAndNotify();
+
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) makeWindow("/");
   });
