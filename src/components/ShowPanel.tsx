@@ -511,7 +511,7 @@ export function ShowPanel(p: Props) {
             + Add clip to {track.name}
           </span>
           <Select
-            value={chosenSources[track.id]}
+            value={chosenSources[track.id] ?? ""}
             onValueChange={(id) => {
               setChosenSources((current) => ({ ...current, [track.id]: id }));
               addClip(track, id);
