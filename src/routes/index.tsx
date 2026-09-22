@@ -72,6 +72,7 @@ import {
   defaultRoom,
   splitOutputsEvenly,
   upgradeOutput,
+  upgradeRoom,
   mediaElements,
   mediaMeta,
   type Crop,
@@ -472,7 +473,7 @@ export function Studio() {
       setProjectId(project.id);
       setProjectName(project.name);
       setGlobals({ ...defaultGlobals(), ...project.globals });
-      setRoom({ ...defaultRoom(), ...project.room });
+      setRoom(upgradeRoom(project.room));
       setTestPattern(project.testPattern ?? "off");
       setSurfaces(project.surfaces.map(upgradeSurface));
       setSelectedId(project.surfaces[0]?.id ?? null);

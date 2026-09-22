@@ -273,15 +273,26 @@ export function SoundPanel(p: Props) {
             </SelectContent>
           </Select>
         )}
-        <Row label="Room size" value={`${p.room.size} m`}>
-          <Slider
-            value={[p.room.size]}
-            min={2}
-            max={40}
-            step={1}
-            onValueChange={([v = 8]) => p.onRoom({ size: v })}
-          />
-        </Row>
+        <div className="grid grid-cols-2 gap-3">
+          <Row label="Width" value={`${p.room.width} m`}>
+            <Slider
+              value={[p.room.width]}
+              min={2}
+              max={100}
+              step={1}
+              onValueChange={([v = 8]) => p.onRoom({ width: v })}
+            />
+          </Row>
+          <Row label="Length" value={`${p.room.length} m`}>
+            <Slider
+              value={[p.room.length]}
+              min={2}
+              max={100}
+              step={1}
+              onValueChange={([v = 8]) => p.onRoom({ length: v })}
+            />
+          </Row>
+        </div>
         <div className="grid grid-cols-2 gap-2">
           <Select
             value={p.room.reverb}

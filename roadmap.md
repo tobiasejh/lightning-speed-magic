@@ -78,3 +78,9 @@
 - [x] Long timeline source names stay inside their selector
 - [x] Timeline moved into its own main workspace tab
 - [x] Verify the updated layout and timeline workflow in the browser
+
+## Room dimensions
+
+- [x] Independent room width and length controls
+- [x] Rectangular room view with dimension-aware sound distances
+- [ ] Verify room resizing and older saved projects
