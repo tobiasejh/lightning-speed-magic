@@ -1233,31 +1233,62 @@ export function Studio() {
 
   useEffect(() => {
     if (!pairCode) return;
-    const ch = supabase.channel(`prism-${pairCode}`, { config: { broadcast: { self: false } } });
-    ch.on("broadcast", { event: "join" }, () => {
-      setRemoteConnected(true);
-      ch.send({ type: "broadcast", event: "state", payload: { surfaces: surfacesRef.current } });
-    })
-      .on("broadcast", { event: "corners" }, ({ payload }) => {
-        const { id, corners } = payload as { id: string; corners: Pt[] };
-        setSurfaces((prev) =>
-          prev.map((s) => (s.id === id ? { ...s, corners: clampCorners(corners) } : s)),
-        );
-      })
-      .on("broadcast", { event: "select" }, ({ payload }) => {
-        setSelectedId((payload as { id: string }).id);
-      })
-      .subscribe();
-    remoteRef.current = ch;
+    let ch: RealtimeChannel | null = null;
+    try {
+      ch = supabase.channel(`prism-${pairCode}`, { config: { broadcast: { self: false } } });
+      const channel = ch;
+      channel
+        .on("broadcast", { event: "join" }, () => {
+          setRemoteConnected(true);
+          try {
+            void channel.send({
+              type: "broadcast",
+              event: "state",
+              payload: { surfaces: surfacesRef.current },
+            });
+          } catch (err) {
+            console.error(err);
+          }
+        })
+        .on("broadcast", { event: "corners" }, ({ payload }) => {
+          const { id, corners } = payload as { id: string; corners: Pt[] };
+          setSurfaces((prev) =>
+            prev.map((s) => (s.id === id ? { ...s, corners: clampCorners(corners) } : s)),
+          );
+        })
+        .on("broadcast", { event: "select" }, ({ payload }) => {
+          setSelectedId((payload as { id: string }).id);
+        })
+        .subscribe();
+      remoteRef.current = channel;
+      setPairError(null);
+    } catch (err) {
+      console.error(err);
+      ch = null;
+      remoteRef.current = null;
+      setPairError("Pairing needs an internet connection. The code above will not work offline.");
+    }
     return () => {
-      void ch.unsubscribe();
+      try {
+        void ch?.unsubscribe();
+      } catch (err) {
+        console.error(err);
+      }
       remoteRef.current = null;
     };
   }, [pairCode]);
 
   useEffect(() => {
     if (!remoteConnected) return;
-    remoteRef.current?.send({ type: "broadcast", event: "state", payload: { surfaces } });
+    try {
+      void remoteRef.current?.send({
+        type: "broadcast",
+        event: "state",
+        payload: { surfaces },
+      });
+    } catch (err) {
+      console.error(err);
+    }
   }, [surfaces, remoteConnected]);
 
   return (
