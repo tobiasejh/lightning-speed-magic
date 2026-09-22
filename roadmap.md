@@ -83,4 +83,4 @@
 
 - [x] Independent room width and length controls
 - [x] Rectangular room view with dimension-aware sound distances
-- [ ] Verify room resizing and older saved projects
+- [x] Verify room resizing and older saved projects
