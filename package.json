@@ -119,7 +119,8 @@
     "publish": {
       "provider": "github",
       "owner": "tobiasejh",
-      "repo": "lightning-speed-magic"
+      "repo": "lightning-speed-magic",
+      "releaseType": "release"
     }
   }
 }
