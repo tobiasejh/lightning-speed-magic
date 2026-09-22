@@ -58,6 +58,17 @@ jobs:
           git tag v${{ steps.version.outputs.version }}
           git push origin v${{ steps.version.outputs.version }}
 
+      # ADDED: pre-creates the GitHub Release before electron-builder runs.
+      # Without this, electron-builder's own release-creation can race itself
+      # (blockmap and exe uploads each independently check "does a release
+      # exist?" at nearly the same moment), producing two separate releases
+      # for the same tag with assets split between them. Creating it first
+      # means electron-builder just finds and uploads to the existing one.
+      - name: Pre-create GitHub Release
+        run: gh release create v${{ steps.version.outputs.version }} --title "${{ steps.version.outputs.version }}" --notes "Automated release"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build web app for desktop
         run: npm run build:desktop
 
