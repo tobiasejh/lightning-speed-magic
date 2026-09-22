@@ -80,6 +80,15 @@ app.whenReady().then(async () => {
   log.transports.file.level = "info";
   autoUpdater.logger = log;
 
+  // The default "github" provider resolves the latest release through
+  // GitHub's releases Atom feed, which has a known intermittent 406 bug.
+  // Pointing at GitHub's stable /releases/latest/download/ URL instead avoids
+  // that broken lookup entirely, while still serving the exact same files.
+  autoUpdater.setFeedURL({
+    provider: "generic",
+    url: "https://github.com/tobiasejh/lightning-speed-magic/releases/latest/download",
+  });
+
   autoUpdater.on("checking-for-update", () => log.info("Checking for update..."));
   autoUpdater.on("update-available", (info) => log.info("Update available:", info.version));
   autoUpdater.on("update-not-available", (info) => log.info("No update available. Current:", info.version));
