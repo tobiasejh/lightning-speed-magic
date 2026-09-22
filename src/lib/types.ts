@@ -236,8 +236,10 @@ export type Speaker = { id: string; name: string; position: Vec3 };
 export type OutputMode = "headphones" | "speakers";
 
 export type RoomConfig = {
-  /** metres across */
-  size: number;
+  /** metres from left to right */
+  width: number;
+  /** metres from front to back */
+  length: number;
   reverb: "dry" | "small" | "large" | "hall";
   order: 1 | 2 | 3;
   outputMode: OutputMode;
@@ -321,7 +323,8 @@ export const SPEAKER_LAYOUTS: Record<string, Speaker[]> = {
 };
 
 export const defaultRoom = (): RoomConfig => ({
-  size: 8,
+  width: 8,
+  length: 8,
   reverb: "small",
   order: 3,
   outputMode: "headphones",
@@ -330,6 +333,20 @@ export const defaultRoom = (): RoomConfig => ({
   listener: { x: 0, y: 0, z: 0 },
   masterGain: 0.9,
 });
+
+/** Fill in rectangular dimensions when opening projects saved with one square room size. */
+export const upgradeRoom = (
+  room?: Partial<RoomConfig> & { size?: number | undefined },
+): RoomConfig => {
+  const defaults = defaultRoom();
+  const legacySize = room?.size;
+  return {
+    ...defaults,
+    ...room,
+    width: room?.width ?? legacySize ?? defaults.width,
+    length: room?.length ?? legacySize ?? defaults.length,
+  };
+};
 
 export const defaultGlobals = (): Globals => ({
   speed: 1,

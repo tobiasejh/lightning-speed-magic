@@ -37,9 +37,11 @@ type Props = {
 
 export function RoomView(p: Props) {
   const { w, h } = p.stage;
-  const size = Math.min(w, h) * 0.9;
-  const ox = (w - size) / 2;
-  const oy = (h - size) / 2;
+  const roomRatio = p.room.width / p.room.length;
+  const roomW = Math.min(w * 0.9, h * 0.9 * roomRatio);
+  const roomH = roomW / roomRatio;
+  const ox = (w - roomW) / 2;
+  const oy = (h - roomH) / 2;
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
   const [linkFromId, setLinkFromId] = useState<string | null>(null);
   const selectedSound = p.sounds.find((sound) => sound.id === p.selectedId) ?? null;
@@ -49,12 +51,12 @@ export function RoomView(p: Props) {
   const selectedSegment = path?.segments.find((s) => s.id === selectedSegmentId) ?? null;
 
   const toPx = (v: Vec3) => ({
-    left: ox + ((v.x + 1) / 2) * size,
-    top: oy + ((v.y + 1) / 2) * size,
+    left: ox + ((v.x + 1) / 2) * roomW,
+    top: oy + ((v.y + 1) / 2) * roomH,
   });
   const toPoint = (clientX: number, clientY: number, rect: DOMRect): Vec3 => ({
-    x: Math.max(-1, Math.min(1, ((clientX - rect.left - ox) / size) * 2 - 1)),
-    y: Math.max(-1, Math.min(1, ((clientY - rect.top - oy) / size) * 2 - 1)),
+    x: Math.max(-1, Math.min(1, ((clientX - rect.left - ox) / roomW) * 2 - 1)),
+    y: Math.max(-1, Math.min(1, ((clientY - rect.top - oy) / roomH) * 2 - 1)),
     z: selectedSound?.position.z ?? 0,
   });
   const rootRect = (el: HTMLElement) =>
@@ -171,8 +173,11 @@ export function RoomView(p: Props) {
       target.addEventListener("pointerup", up);
     };
 
-  const metres = (v: Vec3) =>
-    `${(Math.hypot(v.x - p.room.listener.x, v.y - p.room.listener.y) * (p.room.size / 2)).toFixed(1)} m`;
+  const metres = (v: Vec3) => {
+    const dx = (v.x - p.room.listener.x) * (p.room.width / 2);
+    const dy = (v.y - p.room.listener.y) * (p.room.length / 2);
+    return `${Math.hypot(dx, dy).toFixed(1)} m`;
+  };
 
   return (
     <div className="absolute inset-0 select-none" data-room-root>
@@ -182,18 +187,18 @@ export function RoomView(p: Props) {
         style={{
           left: ox,
           top: oy,
-          width: size,
-          height: size,
+          width: roomW,
+          height: roomH,
           backgroundImage:
             "linear-gradient(to right, var(--border) 1px, transparent 1px), linear-gradient(to bottom, var(--border) 1px, transparent 1px)",
-          backgroundSize: `${size / 8}px ${size / 8}px`,
+          backgroundSize: `${roomW / 8}px ${roomH / 8}px`,
         }}
       >
         <span className="absolute left-2 top-1 text-[10px] uppercase text-muted-foreground">
           Front
         </span>
         <span className="absolute bottom-1 left-2 text-[10px] uppercase text-muted-foreground">
-          Back · {p.room.size} m
+          Back · {p.room.width} × {p.room.length} m
         </span>
       </div>
 

@@ -137,8 +137,20 @@ export class SpatialEngine {
     this.room = room;
     this.master.gain.value = room.masterGain;
     this.reverbOut.gain.value = { dry: 0, small: 0.18, large: 0.32, hall: 0.45 }[room.reverb];
-    if (force || prev.reverb !== room.reverb || prev.size !== room.size) this.buildImpulse();
-    const key = JSON.stringify([room.outputMode, room.speakers, room.order]);
+    if (
+      force ||
+      prev.reverb !== room.reverb ||
+      prev.width !== room.width ||
+      prev.length !== room.length
+    )
+      this.buildImpulse();
+    const key = JSON.stringify([
+      room.outputMode,
+      room.speakers,
+      room.order,
+      room.width,
+      room.length,
+    ]);
     if (force || key !== this.decoderKey) {
       this.decoderKey = key;
       this.buildDecoder();
@@ -147,20 +159,23 @@ export class SpatialEngine {
       force ||
       prev.order !== room.order ||
       prev.listener !== room.listener ||
-      prev.size !== room.size
+      prev.width !== room.width ||
+      prev.length !== room.length
     ) {
       for (const s of this.sources.values()) this.updateSource(s);
     }
   }
 
   private buildImpulse() {
-    const { reverb, size } = this.room;
-    const seconds = { dry: 0.05, small: 0.6, large: 1.4, hall: 2.6 }[reverb] * (0.6 + size / 12);
+    const { reverb, width, length } = this.room;
+    const characteristicSize = (width + length) / 2;
+    const seconds =
+      { dry: 0.05, small: 0.6, large: 1.4, hall: 2.6 }[reverb] * (0.6 + characteristicSize / 12);
     const rate = this.ctx.sampleRate;
     const len = Math.max(1, Math.floor(rate * seconds));
     const buf = this.ctx.createBuffer(1, len, rate);
     const d = buf.getChannelData(0);
-    const predelay = Math.floor(rate * (size / 343) * 0.5);
+    const predelay = Math.floor(rate * (characteristicSize / 343) * 0.5);
     for (let i = predelay; i < len; i++) {
       const t = (i - predelay) / len;
       d[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, 2.2) * 0.5;
@@ -433,13 +448,14 @@ export class SpatialEngine {
     const solo = this.anySolo();
     const audible = !item.mute && (!solo || item.solo);
     const vol = audible ? item.gain : 0;
-    const { listener, size, order } = this.room;
+    const { listener, width, length, order } = this.room;
+    const verticalScale = (width + length) / 4;
     const rel = {
-      x: item.position.x - listener.x,
-      y: item.position.y - listener.y,
-      z: item.position.z - listener.z,
+      x: (item.position.x - listener.x) * (width / 2),
+      y: (item.position.y - listener.y) * (length / 2),
+      z: (item.position.z - listener.z) * verticalScale,
     };
-    const metres = Math.hypot(rel.x, rel.y, rel.z) * (size / 2);
+    const metres = Math.hypot(rel.x, rel.y, rel.z);
     const dist = 1 / Math.max(1, metres);
     const t = this.ctx.currentTime + 0.03;
     g.lowpass.frequency.setTargetAtTime(Math.max(800, 18000 / (1 + metres * 0.35)), t, 0.03);
