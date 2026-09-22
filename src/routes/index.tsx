@@ -224,7 +224,7 @@ export function Studio() {
   const [selectedSoundId, setSelectedSoundId] = useState<string | null>(null);
   const [room, setRoom] = useState<RoomConfig>(defaultRoom);
   const [globals, setGlobals] = useState<Globals>(defaultGlobals);
-  const [testPattern, setTestPattern] = useState<TestPattern>("off");
+  const [testPattern, setTestPattern] = useState<TestPattern>("grid");
 
   const [outputs, setOutputs] = useState<OutputScreen[]>(defaultOutputs);
   const [scenes, setScenes] = useState<Scene[]>([]);
@@ -629,7 +629,7 @@ export function Studio() {
       media: [],
       sounds: [],
       room: defaultRoom(),
-      testPattern: "off",
+      testPattern: "grid",
       outputs: defaultOutputs(),
       scenes: [],
       timeline: [],

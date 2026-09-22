@@ -29,7 +29,7 @@ export function OutputPage() {
   const [snap, setSnap] = useState<OutputSnapshot>({
     surfaces: [],
     globals: defaultGlobals(),
-    testPattern: "off",
+    testPattern: "grid",
     media: [],
   });
   const [outputId, setOutputId] = useState("out1");
