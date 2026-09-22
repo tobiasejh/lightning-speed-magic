@@ -1407,7 +1407,7 @@ export function Studio() {
               variant="ghost"
               onClick={() =>
                 setSurfaces((prev) => {
-                  const s = newSurface(prev.length + 1, "visual:tunnel");
+                  const s = newSurface(prev.length + 1, "visual:plasma");
                   setSelectedId(s.id);
                   return [...prev, s];
                 })
