@@ -1,15 +1,23 @@
-name: Build Windows EXE
+name: Build and Release EXE
+
+# Every push to main now builds AND publishes an update automatically.
+# No manual tagging needed anymore.
 
 on:
   push:
     branches: [main]
-  workflow_dispatch: {}   # lets you trigger it manually from the Actions tab too
+  workflow_dispatch: {}
+
+permissions:
+  contents: write   # needed so this workflow can push the version bump and publish the Release
 
 jobs:
-  build:
+  build-and-release:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: actions/setup-node@v4
         with:
@@ -18,36 +26,39 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      # Bumps 1.0.1 -> 1.0.2 automatically. electron-updater only notices an
+      # update if the version number actually increased, so this has to happen
+      # on every run.
+      - name: Bump patch version
+        run: npm version patch --no-git-tag-version
+
+      - name: Read new version
+        id: version
+        shell: pwsh
+        run: |
+          $v = (Get-Content package.json | ConvertFrom-Json).version
+          echo "version=$v" >> $env:GITHUB_OUTPUT
+
+      # Commits the bumped package.json back to main. "[skip ci]" in the message
+      # tells GitHub not to re-trigger this same workflow from this commit,
+      # which would otherwise create an infinite loop.
+      - name: Commit version bump back to main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json
+          git commit -m "chore: bump version to ${{ steps.version.outputs.version }} [skip ci]"
+          git push
+
       - name: Build web app for desktop
         run: npm run build:desktop
 
-      - name: Build Electron exe
-        run: npx electron-builder --win --publish never
-
-      - name: Upload exe as workflow artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-exe
-          path: release/*.exe
-
-  # Publishes a real GitHub Release with the exe + the update metadata files
-  # (latest.yml, .blockmap) that electron-updater needs to detect and download
-  # new versions. Only runs when you push a version tag like v1.0.0.
-  # IMPORTANT: bump the "version" field in package.json before tagging, or
-  # electron-updater won't see the release as newer.
-  release:
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: windows-latest
-    permissions:
-      contents: write   # needed so electron-builder can create/attach to the Release
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - run: npm install
-      - run: npm run build:desktop
       - name: Build and publish exe
         run: npx electron-builder --win --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag this release
+        run: |
+          git tag v${{ steps.version.outputs.version }}
+          git push origin v${{ steps.version.outputs.version }}
