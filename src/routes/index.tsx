@@ -1862,7 +1862,12 @@ export function Studio() {
           />
         )}
         {pairCode && !fullscreen && (
-          <PairBanner code={pairCode} connected={remoteConnected} onStop={startPairing} />
+          <PairBanner
+            code={pairCode}
+            connected={remoteConnected}
+            error={pairError}
+            onStop={startPairing}
+          />
         )}
         <div className="relative min-h-0 flex-1 bg-black" ref={stageRef}>
           {displaySurfaces.map((s, i) => (
