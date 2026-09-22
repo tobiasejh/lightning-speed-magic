@@ -6,10 +6,11 @@ import { Button } from "@/components/ui/button";
 type Props = {
   code: string;
   connected: boolean;
+  error?: string | null;
   onStop: () => void;
 };
 
-export function PairBanner({ code, connected, onStop }: Props) {
+export function PairBanner({ code, connected, error, onStop }: Props) {
   const [qr, setQr] = useState<string | null>(null);
   const url = typeof window === "undefined" ? "" : `${window.location.origin}/remote?code=${code}`;
 

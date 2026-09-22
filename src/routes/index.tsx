@@ -251,6 +251,7 @@ export function Studio() {
   const [openOutputs, setOpenOutputs] = useState<string[]>([]);
   const [pairCode, setPairCode] = useState<string | null>(null);
   const [remoteConnected, setRemoteConnected] = useState(false);
+  const [pairError, setPairError] = useState<string | null>(null);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [deviceId, setDeviceId] = useState("default");
   const [maxChannels, setMaxChannels] = useState(2);
