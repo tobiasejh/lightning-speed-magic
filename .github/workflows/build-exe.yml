@@ -50,6 +50,14 @@ jobs:
           git commit -m "chore: bump version to ${{ steps.version.outputs.version }} [skip ci]"
           git push
 
+      # MOVED: the tag now gets pushed before building/publishing, since
+      # GitHub requires a published (non-draft) release's tag to already
+      # exist at creation time.
+      - name: Tag this release
+        run: |
+          git tag v${{ steps.version.outputs.version }}
+          git push origin v${{ steps.version.outputs.version }}
+
       - name: Build web app for desktop
         run: npm run build:desktop
 
@@ -57,8 +65,3 @@ jobs:
         run: npx electron-builder --win --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Tag this release
-        run: |
-          git tag v${{ steps.version.outputs.version }}
-          git push origin v${{ steps.version.outputs.version }}
