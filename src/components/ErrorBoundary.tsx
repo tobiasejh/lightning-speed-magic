@@ -8,17 +8,17 @@ type State = { message: string | null };
  * The desktop build has no router-level error screen, so this is the net.
  */
 export class ErrorBoundary extends Component<Props, State> {
-  state: State = { message: null };
+  override state: State = { message: null };
 
   static getDerivedStateFromError(error: unknown): State {
     return { message: error instanceof Error ? error.message : String(error) };
   }
 
-  componentDidCatch(error: unknown, info: ErrorInfo) {
+  override componentDidCatch(error: unknown, info: ErrorInfo) {
     console.error("Prism crashed:", error, info.componentStack);
   }
 
-  render() {
+  override render() {
     if (this.state.message === null) return this.props.children;
     return (
       <div className="flex min-h-screen items-center justify-center bg-background p-8 text-foreground">
