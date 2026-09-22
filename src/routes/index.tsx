@@ -224,7 +224,7 @@ export function Studio() {
   const [selectedSoundId, setSelectedSoundId] = useState<string | null>(null);
   const [room, setRoom] = useState<RoomConfig>(defaultRoom);
   const [globals, setGlobals] = useState<Globals>(defaultGlobals);
-  const [testPattern, setTestPattern] = useState<TestPattern>("off");
+  const [testPattern, setTestPattern] = useState<TestPattern>("grid");
 
   const [outputs, setOutputs] = useState<OutputScreen[]>(defaultOutputs);
   const [scenes, setScenes] = useState<Scene[]>([]);
@@ -474,7 +474,7 @@ export function Studio() {
       setProjectName(project.name);
       setGlobals({ ...defaultGlobals(), ...project.globals });
       setRoom(upgradeRoom(project.room));
-      setTestPattern(project.testPattern ?? "off");
+      setTestPattern(project.testPattern ?? "grid");
       setSurfaces(project.surfaces.map(upgradeSurface));
       setSelectedId(project.surfaces[0]?.id ?? null);
       setOutputs(project.outputs?.length ? project.outputs.map(upgradeOutput) : defaultOutputs());
@@ -629,7 +629,7 @@ export function Studio() {
       media: [],
       sounds: [],
       room: defaultRoom(),
-      testPattern: "off",
+      testPattern: "grid",
       outputs: defaultOutputs(),
       scenes: [],
       timeline: [],
@@ -1098,7 +1098,7 @@ export function Studio() {
       if (!sc) return;
       setSurfaces(sc.surfaces.map(upgradeSurface));
       setGlobals((g) => ({ ...g, ...sc.globals, blackout: g.blackout }));
-      setTestPattern(sc.testPattern ?? "off");
+      setTestPattern(sc.testPattern ?? "grid");
       setActiveSceneId(id);
     },
     [scenes],
