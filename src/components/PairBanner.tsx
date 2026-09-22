@@ -44,8 +44,12 @@ export function PairBanner({ code, connected, error, onStop }: Props) {
         <p className="font-mono text-4xl font-bold leading-none tracking-[0.35em] text-primary sm:text-5xl">
           {code}
         </p>
-        <p className="text-xs text-muted-foreground">
-          {connected ? "Device connected — drag corners there." : "Waiting for device…"}
+        <p className={`text-xs ${error ? "text-destructive" : "text-muted-foreground"}`}>
+          {error
+            ? error
+            : connected
+              ? "Device connected — drag corners there."
+              : "Waiting for device…"}
         </p>
       </div>
       <Button size="sm" variant="ghost" className="ml-auto h-7" onClick={onStop}>
