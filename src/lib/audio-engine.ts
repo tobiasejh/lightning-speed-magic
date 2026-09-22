@@ -170,8 +170,7 @@ export class SpatialEngine {
     const { reverb, width, length } = this.room;
     const characteristicSize = (width + length) / 2;
     const seconds =
-      { dry: 0.05, small: 0.6, large: 1.4, hall: 2.6 }[reverb] *
-      (0.6 + characteristicSize / 12);
+      { dry: 0.05, small: 0.6, large: 1.4, hall: 2.6 }[reverb] * (0.6 + characteristicSize / 12);
     const rate = this.ctx.sampleRate;
     const len = Math.max(1, Math.floor(rate * seconds));
     const buf = this.ctx.createBuffer(1, len, rate);
