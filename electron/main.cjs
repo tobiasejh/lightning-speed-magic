@@ -1,12 +1,17 @@
 // Prism desktop shell. The built app is served over a local HTTP server rather
 // than file:// so that browser storage (saved shows) and popup projector windows work.
 const { app, BrowserWindow, shell } = require("electron");
-const { autoUpdater } = require("electron-updater"); // <-- ADDED
+const { autoUpdater } = require("electron-updater");
+const log = require("electron-log");
 const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 
 const root = path.join(__dirname, "..", "dist-electron");
+
+// Makes Electron use "Prism" everywhere (window title, log folder, userData
+// folder) instead of the package.json "name" (tanstack_start_ts).
+app.setName("Prism");
 
 const types = {
   ".html": "text/html",
@@ -72,9 +77,16 @@ app.whenReady().then(async () => {
   const win = makeWindow("/");
   if (!fs.existsSync(path.join(root, "index.html"))) showMissingFiles(win);
 
-  // ADDED: checks GitHub Releases for a newer version, downloads it in the
-  // background, then prompts the user to restart and install. Only works in
-  // a packaged (built) exe, not when running via `electron .` in dev.
+  log.transports.file.level = "info";
+  autoUpdater.logger = log;
+
+  autoUpdater.on("checking-for-update", () => log.info("Checking for update..."));
+  autoUpdater.on("update-available", (info) => log.info("Update available:", info.version));
+  autoUpdater.on("update-not-available", (info) => log.info("No update available. Current:", info.version));
+  autoUpdater.on("error", (err) => log.error("Updater error:", err));
+  autoUpdater.on("download-progress", (p) => log.info(`Downloading: ${Math.round(p.percent)}%`));
+  autoUpdater.on("update-downloaded", (info) => log.info("Update downloaded:", info.version));
+
   autoUpdater.checkForUpdatesAndNotify();
 
   app.on("activate", () => {
