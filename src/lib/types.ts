@@ -304,6 +304,7 @@ export type Project = {
   media: Omit<MediaItem, "url">[];
   sounds: SoundItem[];
   room: RoomConfig;
+  reverb?: ReverbConfig;
   testPattern: TestPattern;
   outputs?: OutputScreen[];
   scenes?: Scene[];
@@ -370,7 +371,6 @@ export const SPEAKER_LAYOUTS: Record<string, Speaker[]> = {
 export const defaultRoom = (): RoomConfig => ({
   width: 8,
   length: 8,
-  reverb: "small",
   order: 3,
   outputMode: "headphones",
   layout: "stereo",
@@ -381,13 +381,14 @@ export const defaultRoom = (): RoomConfig => ({
 
 /** Fill in rectangular dimensions when opening projects saved with one square room size. */
 export const upgradeRoom = (
-  room?: Partial<RoomConfig> & { size?: number | undefined },
+  room?: Partial<RoomConfig> & { size?: number | undefined; reverb?: string | undefined },
 ): RoomConfig => {
   const defaults = defaultRoom();
   const legacySize = room?.size;
+  const { size: _size, reverb: _reverb, ...rest } = room ?? {};
   return {
     ...defaults,
-    ...room,
+    ...rest,
     width: room?.width ?? legacySize ?? defaults.width,
     length: room?.length ?? legacySize ?? defaults.length,
   };
