@@ -1,4 +1,14 @@
-import { Clock3, Film, Grid3x3, Magnet, Monitor, Move, Smartphone, Volume2 } from "lucide-react";
+import {
+  Clock3,
+  Film,
+  Grid3x3,
+  Magnet,
+  Monitor,
+  Move,
+  Smartphone,
+  Volume2,
+  Waves,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -10,7 +20,7 @@ import {
 } from "@/components/ui/select";
 import type { TestPattern } from "@/lib/types";
 
-export type StageView = "stage" | "room" | "editor" | "timeline";
+export type StageView = "stage" | "room" | "editor" | "timeline" | "effects";
 
 type Props = {
   mapping: boolean;

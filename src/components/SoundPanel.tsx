@@ -293,35 +293,22 @@ export function SoundPanel(p: Props) {
             />
           </Row>
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          <Select
-            value={p.room.reverb}
-            onValueChange={(v) => p.onRoom({ reverb: v as RoomConfig["reverb"] })}
-          >
-            <SelectTrigger className="h-8" aria-label="Reflections">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="dry">Dry</SelectItem>
-              <SelectItem value="small">Small room</SelectItem>
-              <SelectItem value="large">Large room</SelectItem>
-              <SelectItem value="hall">Hall</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select
-            value={String(p.room.order)}
-            onValueChange={(v) => p.onRoom({ order: Number(v) as RoomConfig["order"] })}
-          >
-            <SelectTrigger className="h-8" aria-label="Ambisonic order">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="1">1st order</SelectItem>
-              <SelectItem value="2">2nd order</SelectItem>
-              <SelectItem value="3">3rd order</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+        <Select
+          value={String(p.room.order)}
+          onValueChange={(v) => p.onRoom({ order: Number(v) as RoomConfig["order"] })}
+        >
+          <SelectTrigger className="h-8" aria-label="Ambisonic order">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="1">1st order</SelectItem>
+            <SelectItem value="2">2nd order</SelectItem>
+            <SelectItem value="3">3rd order</SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="text-[10px] text-muted-foreground">
+          Reverb now lives in the Audio Effects tab, where each clip gets its own send.
+        </p>
       </div>
     </div>
   );
