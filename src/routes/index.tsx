@@ -405,6 +405,9 @@ export function Studio() {
     [movementPositions, sounds],
   );
 
+  const reverbRef = useRef(reverb);
+  reverbRef.current = reverb;
+
   const engine = useCallback(() => {
     if (!engineRef.current) {
       engineRef.current = new SpatialEngine(room, reverbRef.current);
@@ -469,8 +472,6 @@ export function Studio() {
     engineRef.current?.applyRoom(room);
   }, [room]);
 
-  const reverbRef = useRef(reverb);
-  reverbRef.current = reverb;
   useEffect(() => {
     engineRef.current?.applyReverb(reverb);
   }, [reverb]);
@@ -598,6 +599,7 @@ export function Studio() {
       projectName,
       surfaces,
       globals,
+      reverb,
       media,
       sounds,
       room,

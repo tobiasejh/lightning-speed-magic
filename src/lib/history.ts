@@ -1,6 +1,7 @@
 import type {
   Globals,
   OutputScreen,
+  ReverbConfig,
   RoomConfig,
   SoundPath,
   Surface,
@@ -16,6 +17,7 @@ export type ShowSnapshot = {
   paths: SoundPath[];
   outputs: OutputScreen[];
   room: RoomConfig;
+  reverb: ReverbConfig;
   globals: Globals;
 };
 
