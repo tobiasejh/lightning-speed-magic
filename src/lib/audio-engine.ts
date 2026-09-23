@@ -334,6 +334,9 @@ export class SpatialEngine {
     analyser.fftSize = 512;
     analyser.smoothingTimeConstant = 0.7;
     const encoder: GainNode[] = [];
+    const send = this.ctx.createGain();
+    send.gain.value = 0;
+    send.connect(this.reverb.input);
     el.muted = false;
     const g: SourceGraph = {
       item,
@@ -349,6 +352,8 @@ export class SpatialEngine {
       encoder,
       ambiRot: null,
       splitter: null,
+      send,
+      sendAmount: 0,
       startedAt: 0,
       offset: 0,
     };
@@ -357,7 +362,7 @@ export class SpatialEngine {
     input.connect(lowpass);
     lowpass.connect(distance);
     distance.connect(analyser);
-    distance.connect(this.reverbIn);
+    distance.connect(send);
     for (let i = 0; i < CH; i++) {
       const e = this.ctx.createGain();
       e.gain.value = 0;
