@@ -166,6 +166,8 @@ export type TimelineClip = {
   soundId?: string | undefined;
   surfaceId?: string | undefined;
   pathId?: string | undefined;
+  /** how much of this clip is sent to the reverb bus, 0..1 */
+  reverbSend?: number | undefined;
 };
 
 export type SoundPathPoint = { time: number; position: Vec3 };
