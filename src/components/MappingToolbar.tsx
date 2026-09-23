@@ -54,7 +54,9 @@ export function MappingToolbar(p: Props) {
             ? "Crop, cut and sync your photos and videos before projecting them."
             : p.view === "timeline"
               ? "Arrange visual, audio and movement clips across the show."
-              : "Drag the corner dots so each shape lines up with the real surface. Hold Shift to skip snapping."}
+              : p.view === "effects"
+                ? "Shape the reverb and choose how much of each sound is sent into it."
+                : "Drag the corner dots so each shape lines up with the real surface. Hold Shift to skip snapping."}
       </p>
       <Button
         size="sm"
@@ -83,6 +85,13 @@ export function MappingToolbar(p: Props) {
         onClick={() => p.onView("timeline")}
       >
         <Clock3 className="size-4" /> Timeline
+      </Button>
+      <Button
+        size="sm"
+        variant={p.view === "effects" ? "default" : "secondary"}
+        onClick={() => p.onView("effects")}
+      >
+        <Waves className="size-4" /> Audio Effects
       </Button>
       <Button size="sm" variant={p.mapping ? "default" : "secondary"} onClick={p.onMapping}>
         <Move className="size-4" /> {p.mapping ? "Mapping on" : "Mapping off"}
