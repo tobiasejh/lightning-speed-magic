@@ -387,7 +387,15 @@ export class SpatialEngine {
       g.el?.pause();
       if (g.el) g.el.src = "";
     }
-    [g.input, g.distance, g.lowpass, g.analyser, ...g.encoder, ...(g.ambiRot ?? [])].forEach((n) =>
+    [
+      g.input,
+      g.distance,
+      g.lowpass,
+      g.analyser,
+      g.send,
+      ...g.encoder,
+      ...(g.ambiRot ?? []),
+    ].forEach((n) =>
       n.disconnect(),
     );
     g.splitter?.disconnect();
@@ -455,7 +463,7 @@ export class SpatialEngine {
     const wGain = this.ctx.createGain();
     g.splitter.connect(wGain, 0);
     wGain.connect(g.analyser);
-    wGain.connect(this.reverbIn);
+    wGain.connect(g.send);
     for (let i = 0; i < CH; i++) {
       const a = g.ambiRot[i * 2]!;
       const b = g.ambiRot[i * 2 + 1]!;
