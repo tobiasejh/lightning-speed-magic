@@ -32,6 +32,7 @@ import { MediaEditor } from "@/components/MediaEditor";
 import { PairBanner } from "@/components/PairBanner";
 import { ProjectsMenu } from "@/components/ProjectsMenu";
 import { RoomView } from "@/components/RoomView";
+import { AudioEffectsPanel } from "@/components/AudioEffectsPanel";
 import { ShowPanel } from "@/components/ShowPanel";
 import { SoundPanel } from "@/components/SoundPanel";
 import { SurfaceLayer } from "@/components/SurfaceLayer";
@@ -70,6 +71,8 @@ import {
   defaultOutputs,
   defaultRegion,
   defaultRoom,
+  defaultReverb,
+  upgradeReverb,
   splitOutputsEvenly,
   upgradeOutput,
   upgradeRoom,
@@ -223,6 +226,7 @@ export function Studio() {
   const [sounds, setSounds] = useState<SoundItem[]>([]);
   const [selectedSoundId, setSelectedSoundId] = useState<string | null>(null);
   const [room, setRoom] = useState<RoomConfig>(defaultRoom);
+  const [reverb, setReverb] = useState(defaultReverb);
   const [globals, setGlobals] = useState<Globals>(defaultGlobals);
   const [testPattern, setTestPattern] = useState<TestPattern>("grid");
 
@@ -318,9 +322,10 @@ export function Studio() {
       paths: soundPaths,
       outputs,
       room,
+      reverb,
       globals,
     }),
-    [surfaces, timelineTracks, timelineClips, soundPaths, outputs, room, globals],
+    [surfaces, timelineTracks, timelineClips, soundPaths, outputs, room, reverb, globals],
   );
   const snapRef = useRef(showSnapshot);
   useEffect(() => {
@@ -337,6 +342,7 @@ export function Studio() {
     setSoundPaths(s.paths);
     setOutputs(s.outputs);
     setRoom(s.room);
+    setReverb(s.reverb);
     setGlobals(s.globals);
   }, []);
 
@@ -400,9 +406,12 @@ export function Studio() {
     [movementPositions, sounds],
   );
 
+  const reverbRef = useRef(reverb);
+  reverbRef.current = reverb;
+
   const engine = useCallback(() => {
     if (!engineRef.current) {
-      engineRef.current = new SpatialEngine(room);
+      engineRef.current = new SpatialEngine(room, reverbRef.current);
       setMaxChannels(engineRef.current.maxChannels);
     }
     return engineRef.current;
@@ -464,6 +473,10 @@ export function Studio() {
     engineRef.current?.applyRoom(room);
   }, [room]);
 
+  useEffect(() => {
+    engineRef.current?.applyReverb(reverb);
+  }, [reverb]);
+
   // ----- projects -----
   const applyProject = useCallback(
     async (project: Project, b: BlobMap) => {
@@ -475,6 +488,9 @@ export function Studio() {
       setProjectName(project.name);
       setGlobals({ ...defaultGlobals(), ...project.globals });
       setRoom(upgradeRoom(project.room));
+      setReverb(
+        upgradeReverb(project.reverb, (project.room as { reverb?: string } | undefined)?.reverb),
+      );
       setTestPattern(project.testPattern ?? "grid");
       setSurfaces(project.surfaces.map(upgradeSurface));
       setSelectedId(project.surfaces[0]?.id ?? null);
@@ -563,6 +579,7 @@ export function Studio() {
       media: media.map(({ url: _url, ...rest }) => rest),
       sounds: sounds.map((s) => ({ ...s, playing: false })),
       room,
+      reverb,
       testPattern,
       outputs,
       scenes,
@@ -580,6 +597,7 @@ export function Studio() {
       projectName,
       surfaces,
       globals,
+      reverb,
       media,
       sounds,
       room,
@@ -630,6 +648,7 @@ export function Studio() {
       media: [],
       sounds: [],
       room: defaultRoom(),
+      reverb: defaultReverb(),
       testPattern: "grid",
       outputs: defaultOutputs(),
       scenes: [],
@@ -1139,6 +1158,7 @@ export function Studio() {
         } else if (clip.kind === "audio" && clip.soundId) {
           if (!activeTimelineClips.current.has(clip.id) || !playing)
             engineRef.current?.seek(clip.soundId, localTime);
+          engineRef.current?.setReverbSend(clip.soundId, clip.reverbSend ?? 0);
           if (playing) engineRef.current?.playSound(clip.soundId);
           else engineRef.current?.pauseSound(clip.soundId);
         } else if (clip.kind === "movement" && clip.pathId && clip.soundId) {
@@ -1162,8 +1182,10 @@ export function Studio() {
       }
       for (const clip of timelineClips) {
         if (nextIds.has(clip.id)) continue;
-        if (clip.kind === "audio" && clip.soundId && !activeSoundIds.has(clip.soundId))
+        if (clip.kind === "audio" && clip.soundId && !activeSoundIds.has(clip.soundId)) {
           engineRef.current?.pauseSound(clip.soundId);
+          engineRef.current?.setReverbSend(clip.soundId, 0);
+        }
         if (clip.kind === "visual" && clip.mediaId && !activeVideoIds.has(clip.mediaId)) {
           const element = mediaElements.get(clip.mediaId);
           if (element instanceof HTMLVideoElement) element.pause();
@@ -1934,6 +1956,20 @@ export function Studio() {
               }}
               onDelete={removeMedia}
             />
+          )}
+          {view === "effects" && !fullscreen && (
+            <div className="absolute inset-0 z-30 min-w-0 overflow-y-auto bg-background p-4 lg:p-6">
+              <div className="mx-auto w-full max-w-[72rem]">
+                <AudioEffectsPanel
+                  reverb={reverb}
+                  onReverb={(next) => setReverb((prev) => ({ ...prev, ...next }))}
+                  clips={timelineClips}
+                  sounds={sounds}
+                  room={room}
+                  onClips={setTimelineClips}
+                />
+              </div>
+            </div>
           )}
           {view === "timeline" && !fullscreen && (
             <div className="absolute inset-0 z-30 min-w-0 overflow-y-auto bg-background p-4 lg:p-6">

@@ -166,6 +166,8 @@ export type TimelineClip = {
   soundId?: string | undefined;
   surfaceId?: string | undefined;
   pathId?: string | undefined;
+  /** how much of this clip is sent to the reverb bus, 0..1 */
+  reverbSend?: number | undefined;
 };
 
 export type SoundPathPoint = { time: number; position: Vec3 };
@@ -240,13 +242,58 @@ export type RoomConfig = {
   width: number;
   /** metres from front to back */
   length: number;
-  reverb: "dry" | "small" | "large" | "hall";
   order: 1 | 2 | 3;
   outputMode: OutputMode;
   layout: string;
   speakers: Speaker[];
   listener: Vec3;
   masterGain: number;
+};
+
+/** Ambisonic reverb bus settings (Audio Effects tab). */
+export type ReverbConfig = {
+  enabled: boolean;
+  /** output level of the whole bus, 0..1 */
+  level: number;
+  /** reverberant room size in metres */
+  roomSize: number;
+  /** tail length in seconds */
+  decay: number;
+  /** early reflection amount, 0..1 */
+  earlyAmount: number;
+  /** how wide the first bounces arrive, 0..1 */
+  earlySpread: number;
+  /** delay before the reverb starts, milliseconds */
+  preDelayMs: number;
+  /** high-frequency absorption, 0..1 */
+  damping: number;
+};
+
+export const defaultReverb = (): ReverbConfig => ({
+  enabled: true,
+  level: 0.8,
+  roomSize: 12,
+  decay: 1.8,
+  earlyAmount: 0.6,
+  earlySpread: 0.5,
+  preDelayMs: 20,
+  damping: 0.35,
+});
+
+/** Map older projects (dry/small/large/hall room echo) onto the reverb bus. */
+export const upgradeReverb = (
+  reverb?: Partial<ReverbConfig> | undefined,
+  legacy?: string | undefined,
+): ReverbConfig => {
+  const defaults = defaultReverb();
+  if (reverb && typeof reverb.decay === "number") return { ...defaults, ...reverb };
+  const presets: Record<string, Partial<ReverbConfig>> = {
+    dry: { enabled: false, roomSize: 6, decay: 0.3, level: 0.4 },
+    small: { roomSize: 8, decay: 0.8, level: 0.6 },
+    large: { roomSize: 18, decay: 1.8, level: 0.8 },
+    hall: { roomSize: 30, decay: 3, level: 0.9 },
+  };
+  return { ...defaults, ...(legacy ? presets[legacy] : undefined), ...(reverb ?? {}) };
 };
 
 export type Project = {
@@ -259,6 +306,7 @@ export type Project = {
   media: Omit<MediaItem, "url">[];
   sounds: SoundItem[];
   room: RoomConfig;
+  reverb?: ReverbConfig;
   testPattern: TestPattern;
   outputs?: OutputScreen[];
   scenes?: Scene[];
@@ -325,7 +373,6 @@ export const SPEAKER_LAYOUTS: Record<string, Speaker[]> = {
 export const defaultRoom = (): RoomConfig => ({
   width: 8,
   length: 8,
-  reverb: "small",
   order: 3,
   outputMode: "headphones",
   layout: "stereo",
@@ -336,13 +383,14 @@ export const defaultRoom = (): RoomConfig => ({
 
 /** Fill in rectangular dimensions when opening projects saved with one square room size. */
 export const upgradeRoom = (
-  room?: Partial<RoomConfig> & { size?: number | undefined },
+  room?: Partial<RoomConfig> & { size?: number | undefined; reverb?: string | undefined },
 ): RoomConfig => {
   const defaults = defaultRoom();
   const legacySize = room?.size;
+  const { size: _size, reverb: _reverb, ...rest } = room ?? {};
   return {
     ...defaults,
-    ...room,
+    ...rest,
     width: room?.width ?? legacySize ?? defaults.width,
     length: room?.length ?? legacySize ?? defaults.length,
   };

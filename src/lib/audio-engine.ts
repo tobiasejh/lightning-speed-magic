@@ -1,35 +1,18 @@
 import { bandLevels, silentLevels, type AudioLevels } from "./audio";
-import type { RoomConfig, SoundItem, Speaker, Vec3 } from "./types";
+import { ReverbBus } from "./reverb";
+import { shCoefficients } from "./sh";
+import {
+  defaultReverb,
+  type ReverbConfig,
+  type RoomConfig,
+  type SoundItem,
+  type Speaker,
+  type Vec3,
+} from "./types";
 
 const CH = 16; // 3rd order ACN channel count
 
-/** Real spherical harmonics, ACN ordering, SN3D normalisation, up to order 3. */
-export function shCoefficients(dir: Vec3): number[] {
-  const len = Math.hypot(dir.x, dir.y, dir.z) || 1;
-  // ambix axes: x forward, y left, z up. Our room: x right, y down(screen)/back, z up.
-  const x = -dir.y / len; // forward = towards top of screen (negative y)
-  const y = -dir.x / len; // left = negative screen x
-  const z = dir.z / len;
-  const s3 = Math.sqrt(3);
-  return [
-    1,
-    y,
-    z,
-    x,
-    s3 * x * y,
-    s3 * y * z,
-    (3 * z * z - 1) / 2,
-    s3 * x * z,
-    (s3 / 2) * (x * x - y * y),
-    Math.sqrt(5 / 8) * y * (3 * x * x - y * y),
-    Math.sqrt(15) * x * y * z,
-    Math.sqrt(3 / 8) * y * (5 * z * z - 1),
-    (z * (5 * z * z - 3)) / 2,
-    Math.sqrt(3 / 8) * x * (5 * z * z - 1),
-    (Math.sqrt(15) / 2) * z * (x * x - y * y),
-    Math.sqrt(5 / 8) * x * (x * x - 3 * y * y),
-  ];
-}
+export { shCoefficients };
 
 const orderOf = (acn: number) => Math.floor(Math.sqrt(acn));
 
@@ -47,6 +30,9 @@ type SourceGraph = {
   encoder: GainNode[]; // 16 gains into field
   ambiRot: GainNode[] | null; // 2 per channel for ambisonic files
   splitter: ChannelSplitterNode | null;
+  /** how much of this source goes to the reverb bus */
+  send: GainNode;
+  sendAmount: number;
   startedAt: number;
   offset: number;
 };
@@ -55,9 +41,7 @@ export class SpatialEngine {
   ctx: AudioContext;
   private field: ChannelMergerNode;
   private fieldSplit: ChannelSplitterNode;
-  private reverbIn: GainNode;
-  private convolver: ConvolverNode;
-  private reverbOut: GainNode;
+  private reverb: ReverbBus;
   private master: GainNode;
   private masterAnalyser: AnalyserNode;
   private masterData: Uint8Array<ArrayBuffer>;
@@ -69,7 +53,7 @@ export class SpatialEngine {
   private raf = 0;
   maxChannels: number;
 
-  constructor(room: RoomConfig) {
+  constructor(room: RoomConfig, reverb: ReverbConfig = defaultReverb()) {
     const Ctx =
       window.AudioContext ||
       (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
@@ -79,12 +63,7 @@ export class SpatialEngine {
     this.field = this.ctx.createChannelMerger(CH);
     this.fieldSplit = this.ctx.createChannelSplitter(CH);
     this.field.connect(this.fieldSplit);
-    this.reverbIn = this.ctx.createGain();
-    this.convolver = this.ctx.createConvolver();
-    this.reverbOut = this.ctx.createGain();
-    this.reverbIn.connect(this.convolver);
-    this.convolver.connect(this.reverbOut);
-    this.reverbOut.connect(this.field, 0, 0); // omni reverb into W
+    this.reverb = new ReverbBus(this.ctx, this.field, reverb);
     this.master = this.ctx.createGain();
     this.masterAnalyser = this.ctx.createAnalyser();
     this.masterAnalyser.fftSize = 1024;
@@ -136,14 +115,6 @@ export class SpatialEngine {
     const prev = this.room;
     this.room = room;
     this.master.gain.value = room.masterGain;
-    this.reverbOut.gain.value = { dry: 0, small: 0.18, large: 0.32, hall: 0.45 }[room.reverb];
-    if (
-      force ||
-      prev.reverb !== room.reverb ||
-      prev.width !== room.width ||
-      prev.length !== room.length
-    )
-      this.buildImpulse();
     const key = JSON.stringify([
       room.outputMode,
       room.speakers,
@@ -166,21 +137,21 @@ export class SpatialEngine {
     }
   }
 
-  private buildImpulse() {
-    const { reverb, width, length } = this.room;
-    const characteristicSize = (width + length) / 2;
-    const seconds =
-      { dry: 0.05, small: 0.6, large: 1.4, hall: 2.6 }[reverb] * (0.6 + characteristicSize / 12);
-    const rate = this.ctx.sampleRate;
-    const len = Math.max(1, Math.floor(rate * seconds));
-    const buf = this.ctx.createBuffer(1, len, rate);
-    const d = buf.getChannelData(0);
-    const predelay = Math.floor(rate * (characteristicSize / 343) * 0.5);
-    for (let i = predelay; i < len; i++) {
-      const t = (i - predelay) / len;
-      d[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, 2.2) * 0.5;
-    }
-    this.convolver.buffer = buf;
+  /** Apply Audio Effects reverb bus settings. */
+  applyReverb(cfg: ReverbConfig) {
+    this.reverb.apply(cfg);
+  }
+
+  /** Amount of a source sent into the reverb bus, 0..1. */
+  setReverbSend(id: string, amount: number) {
+    const g = this.sources.get(id);
+    if (!g) return;
+    g.sendAmount = Math.max(0, Math.min(1, amount));
+    g.send.gain.setTargetAtTime(g.sendAmount, this.ctx.currentTime + 0.02, 0.03);
+  }
+
+  reverbSend(id: string) {
+    return this.sources.get(id)?.sendAmount ?? 0;
   }
 
   private buildDecoder() {
@@ -286,6 +257,9 @@ export class SpatialEngine {
     analyser.fftSize = 512;
     analyser.smoothingTimeConstant = 0.7;
     const encoder: GainNode[] = [];
+    const send = this.ctx.createGain();
+    send.gain.value = 0;
+    send.connect(this.reverb.input);
     const g: SourceGraph = {
       item,
       el: null,
@@ -300,6 +274,8 @@ export class SpatialEngine {
       encoder,
       ambiRot: null,
       splitter: null,
+      send,
+      sendAmount: 0,
       startedAt: 0,
       offset: 0,
     };
@@ -317,7 +293,7 @@ export class SpatialEngine {
       const wGain = this.ctx.createGain();
       g.splitter.connect(wGain, 0);
       wGain.connect(analyser);
-      wGain.connect(this.reverbIn);
+      wGain.connect(send);
       // input gain node used for master-volume scaling of whole ambisonic source via each rot gain
       this.updateAmbiRotation(g);
     } else {
@@ -331,7 +307,7 @@ export class SpatialEngine {
       input.connect(lowpass);
       lowpass.connect(distance);
       distance.connect(analyser);
-      distance.connect(this.reverbIn);
+      distance.connect(send);
       for (let i = 0; i < CH; i++) {
         const e = this.ctx.createGain();
         e.gain.value = 0;
@@ -365,6 +341,9 @@ export class SpatialEngine {
     analyser.fftSize = 512;
     analyser.smoothingTimeConstant = 0.7;
     const encoder: GainNode[] = [];
+    const send = this.ctx.createGain();
+    send.gain.value = 0;
+    send.connect(this.reverb.input);
     el.muted = false;
     const g: SourceGraph = {
       item,
@@ -380,6 +359,8 @@ export class SpatialEngine {
       encoder,
       ambiRot: null,
       splitter: null,
+      send,
+      sendAmount: 0,
       startedAt: 0,
       offset: 0,
     };
@@ -388,7 +369,7 @@ export class SpatialEngine {
     input.connect(lowpass);
     lowpass.connect(distance);
     distance.connect(analyser);
-    distance.connect(this.reverbIn);
+    distance.connect(send);
     for (let i = 0; i < CH; i++) {
       const e = this.ctx.createGain();
       e.gain.value = 0;
@@ -413,9 +394,15 @@ export class SpatialEngine {
       g.el?.pause();
       if (g.el) g.el.src = "";
     }
-    [g.input, g.distance, g.lowpass, g.analyser, ...g.encoder, ...(g.ambiRot ?? [])].forEach((n) =>
-      n.disconnect(),
-    );
+    [
+      g.input,
+      g.distance,
+      g.lowpass,
+      g.analyser,
+      g.send,
+      ...g.encoder,
+      ...(g.ambiRot ?? []),
+    ].forEach((n) => n.disconnect());
     g.splitter?.disconnect();
     this.sources.delete(id);
   }
@@ -481,7 +468,7 @@ export class SpatialEngine {
     const wGain = this.ctx.createGain();
     g.splitter.connect(wGain, 0);
     wGain.connect(g.analyser);
-    wGain.connect(this.reverbIn);
+    wGain.connect(g.send);
     for (let i = 0; i < CH; i++) {
       const a = g.ambiRot[i * 2]!;
       const b = g.ambiRot[i * 2 + 1]!;
@@ -581,6 +568,7 @@ export class SpatialEngine {
   destroy() {
     cancelAnimationFrame(this.raf);
     for (const id of [...this.sources.keys()]) this.removeSound(id);
+    this.reverb.destroy();
     void this.ctx.close();
   }
 }
