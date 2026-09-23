@@ -250,6 +250,9 @@ export class SpatialEngine {
     analyser.fftSize = 512;
     analyser.smoothingTimeConstant = 0.7;
     const encoder: GainNode[] = [];
+    const send = this.ctx.createGain();
+    send.gain.value = 0;
+    send.connect(this.reverb.input);
     const g: SourceGraph = {
       item,
       el: null,
@@ -264,6 +267,8 @@ export class SpatialEngine {
       encoder,
       ambiRot: null,
       splitter: null,
+      send,
+      sendAmount: 0,
       startedAt: 0,
       offset: 0,
     };
@@ -281,7 +286,7 @@ export class SpatialEngine {
       const wGain = this.ctx.createGain();
       g.splitter.connect(wGain, 0);
       wGain.connect(analyser);
-      wGain.connect(this.reverbIn);
+      wGain.connect(send);
       // input gain node used for master-volume scaling of whole ambisonic source via each rot gain
       this.updateAmbiRotation(g);
     } else {
@@ -295,7 +300,7 @@ export class SpatialEngine {
       input.connect(lowpass);
       lowpass.connect(distance);
       distance.connect(analyser);
-      distance.connect(this.reverbIn);
+      distance.connect(send);
       for (let i = 0; i < CH; i++) {
         const e = this.ctx.createGain();
         e.gain.value = 0;
