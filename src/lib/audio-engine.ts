@@ -23,6 +23,9 @@ type SourceGraph = {
   encoder: GainNode[]; // 16 gains into field
   ambiRot: GainNode[] | null; // 2 per channel for ambisonic files
   splitter: ChannelSplitterNode | null;
+  /** how much of this source goes to the reverb bus */
+  send: GainNode;
+  sendAmount: number;
   startedAt: number;
   offset: number;
 };
