@@ -34,9 +34,7 @@ export class SpatialEngine {
   ctx: AudioContext;
   private field: ChannelMergerNode;
   private fieldSplit: ChannelSplitterNode;
-  private reverbIn: GainNode;
-  private convolver: ConvolverNode;
-  private reverbOut: GainNode;
+  private reverb: ReverbBus;
   private master: GainNode;
   private masterAnalyser: AnalyserNode;
   private masterData: Uint8Array<ArrayBuffer>;
