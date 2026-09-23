@@ -108,14 +108,6 @@ export class SpatialEngine {
     const prev = this.room;
     this.room = room;
     this.master.gain.value = room.masterGain;
-    this.reverbOut.gain.value = { dry: 0, small: 0.18, large: 0.32, hall: 0.45 }[room.reverb];
-    if (
-      force ||
-      prev.reverb !== room.reverb ||
-      prev.width !== room.width ||
-      prev.length !== room.length
-    )
-      this.buildImpulse();
     const key = JSON.stringify([
       room.outputMode,
       room.speakers,
@@ -138,21 +130,21 @@ export class SpatialEngine {
     }
   }
 
-  private buildImpulse() {
-    const { reverb, width, length } = this.room;
-    const characteristicSize = (width + length) / 2;
-    const seconds =
-      { dry: 0.05, small: 0.6, large: 1.4, hall: 2.6 }[reverb] * (0.6 + characteristicSize / 12);
-    const rate = this.ctx.sampleRate;
-    const len = Math.max(1, Math.floor(rate * seconds));
-    const buf = this.ctx.createBuffer(1, len, rate);
-    const d = buf.getChannelData(0);
-    const predelay = Math.floor(rate * (characteristicSize / 343) * 0.5);
-    for (let i = predelay; i < len; i++) {
-      const t = (i - predelay) / len;
-      d[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, 2.2) * 0.5;
-    }
-    this.convolver.buffer = buf;
+  /** Apply Audio Effects reverb bus settings. */
+  applyReverb(cfg: ReverbConfig) {
+    this.reverb.apply(cfg);
+  }
+
+  /** Amount of a source sent into the reverb bus, 0..1. */
+  setReverbSend(id: string, amount: number) {
+    const g = this.sources.get(id);
+    if (!g) return;
+    g.sendAmount = Math.max(0, Math.min(1, amount));
+    g.send.gain.setTargetAtTime(g.sendAmount, this.ctx.currentTime + 0.02, 0.03);
+  }
+
+  reverbSend(id: string) {
+    return this.sources.get(id)?.sendAmount ?? 0;
   }
 
   private buildDecoder() {
