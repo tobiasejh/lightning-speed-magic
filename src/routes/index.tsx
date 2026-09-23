@@ -32,6 +32,7 @@ import { MediaEditor } from "@/components/MediaEditor";
 import { PairBanner } from "@/components/PairBanner";
 import { ProjectsMenu } from "@/components/ProjectsMenu";
 import { RoomView } from "@/components/RoomView";
+import { AudioEffectsPanel } from "@/components/AudioEffectsPanel";
 import { ShowPanel } from "@/components/ShowPanel";
 import { SoundPanel } from "@/components/SoundPanel";
 import { SurfaceLayer } from "@/components/SurfaceLayer";
@@ -488,10 +489,7 @@ export function Studio() {
       setGlobals({ ...defaultGlobals(), ...project.globals });
       setRoom(upgradeRoom(project.room));
       setReverb(
-        upgradeReverb(
-          project.reverb,
-          (project.room as { reverb?: string } | undefined)?.reverb,
-        ),
+        upgradeReverb(project.reverb, (project.room as { reverb?: string } | undefined)?.reverb),
       );
       setTestPattern(project.testPattern ?? "grid");
       setSurfaces(project.surfaces.map(upgradeSurface));
@@ -1958,6 +1956,20 @@ export function Studio() {
               }}
               onDelete={removeMedia}
             />
+          )}
+          {view === "effects" && !fullscreen && (
+            <div className="absolute inset-0 z-30 min-w-0 overflow-y-auto bg-background p-4 lg:p-6">
+              <div className="mx-auto w-full max-w-[72rem]">
+                <AudioEffectsPanel
+                  reverb={reverb}
+                  onReverb={(next) => setReverb((prev) => ({ ...prev, ...next }))}
+                  clips={timelineClips}
+                  sounds={sounds}
+                  room={room}
+                  onClips={setTimelineClips}
+                />
+              </div>
+            </div>
           )}
           {view === "timeline" && !fullscreen && (
             <div className="absolute inset-0 z-30 min-w-0 overflow-y-auto bg-background p-4 lg:p-6">

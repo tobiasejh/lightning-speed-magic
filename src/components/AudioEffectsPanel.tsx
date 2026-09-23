@@ -37,8 +37,9 @@ export function AudioEffectsPanel(p: Props) {
           <Waves className="size-4" /> Audio Effects
         </h2>
         <p className="text-xs text-muted-foreground">
-          Reverb is built in full 3D sound ({p.room.order === 3 ? "3rd" : `${p.room.order}${p.room.order === 1 ? "st" : "nd"}`}{" "}
-          order) and played out through {output}.
+          Reverb is built in full 3D sound (
+          {p.room.order === 3 ? "3rd" : `${p.room.order}${p.room.order === 1 ? "st" : "nd"}`} order)
+          and played out through {output}.
         </p>
       </header>
 
@@ -66,7 +67,11 @@ export function AudioEffectsPanel(p: Props) {
               onValueChange={([v = 0.8]) => p.onReverb({ level: v })}
             />
           </Row>
-          <Row label="Room size" value={`${p.reverb.roomSize} m`} hint="Bigger rooms space the first bounces further apart.">
+          <Row
+            label="Room size"
+            value={`${p.reverb.roomSize} m`}
+            hint="Bigger rooms space the first bounces further apart."
+          >
             <Slider
               value={[p.reverb.roomSize]}
               min={2}
@@ -75,7 +80,11 @@ export function AudioEffectsPanel(p: Props) {
               onValueChange={([v = 12]) => p.onReverb({ roomSize: v })}
             />
           </Row>
-          <Row label="Decay" value={`${p.reverb.decay.toFixed(1)} s`} hint="How long the echo keeps ringing.">
+          <Row
+            label="Decay"
+            value={`${p.reverb.decay.toFixed(1)} s`}
+            hint="How long the echo keeps ringing."
+          >
             <Slider
               value={[p.reverb.decay]}
               min={0.1}

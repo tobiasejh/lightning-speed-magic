@@ -1,7 +1,14 @@
 import { bandLevels, silentLevels, type AudioLevels } from "./audio";
 import { ReverbBus } from "./reverb";
 import { shCoefficients } from "./sh";
-import { defaultReverb, type ReverbConfig, type RoomConfig, type SoundItem, type Speaker, type Vec3 } from "./types";
+import {
+  defaultReverb,
+  type ReverbConfig,
+  type RoomConfig,
+  type SoundItem,
+  type Speaker,
+  type Vec3,
+} from "./types";
 
 const CH = 16; // 3rd order ACN channel count
 
@@ -395,9 +402,7 @@ export class SpatialEngine {
       g.send,
       ...g.encoder,
       ...(g.ambiRot ?? []),
-    ].forEach((n) =>
-      n.disconnect(),
-    );
+    ].forEach((n) => n.disconnect());
     g.splitter?.disconnect();
     this.sources.delete(id);
   }
