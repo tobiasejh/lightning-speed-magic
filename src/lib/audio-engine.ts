@@ -563,6 +563,7 @@ export class SpatialEngine {
   destroy() {
     cancelAnimationFrame(this.raf);
     for (const id of [...this.sources.keys()]) this.removeSound(id);
+    this.reverb.destroy();
     void this.ctx.close();
   }
 }
