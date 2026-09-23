@@ -46,7 +46,7 @@ export class SpatialEngine {
   private raf = 0;
   maxChannels: number;
 
-  constructor(room: RoomConfig) {
+  constructor(room: RoomConfig, reverb: ReverbConfig = defaultReverb()) {
     const Ctx =
       window.AudioContext ||
       (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
@@ -56,12 +56,7 @@ export class SpatialEngine {
     this.field = this.ctx.createChannelMerger(CH);
     this.fieldSplit = this.ctx.createChannelSplitter(CH);
     this.field.connect(this.fieldSplit);
-    this.reverbIn = this.ctx.createGain();
-    this.convolver = this.ctx.createConvolver();
-    this.reverbOut = this.ctx.createGain();
-    this.reverbIn.connect(this.convolver);
-    this.convolver.connect(this.reverbOut);
-    this.reverbOut.connect(this.field, 0, 0); // omni reverb into W
+    this.reverb = new ReverbBus(this.ctx, this.field, reverb);
     this.master = this.ctx.createGain();
     this.masterAnalyser = this.ctx.createAnalyser();
     this.masterAnalyser.fftSize = 1024;
