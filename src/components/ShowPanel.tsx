@@ -19,6 +19,7 @@ import { useState, type PointerEvent as ReactPointerEvent } from "react";
 import { AutomationEditor } from "@/components/AutomationEditor";
 import { AutomationLane, axisOutline } from "@/components/AutomationLane";
 import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
 import {
   Select,
   SelectContent,
