@@ -414,6 +414,24 @@ export function ShowPanel(p: Props) {
                     </SelectContent>
                   </Select>
                 )}
+                {clip.kind === "audio" && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-muted-foreground">Reverb send</span>
+                    <div className="w-28">
+                      <Slider
+                        aria-label="Reverb send"
+                        value={[clip.reverbSend ?? 0]}
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        onValueChange={([v = 0]) => patchClip(clip.id, { reverbSend: v })}
+                      />
+                    </div>
+                    <span className="w-8 text-[10px] text-muted-foreground">
+                      {Math.round((clip.reverbSend ?? 0) * 100)}%
+                    </span>
+                  </div>
+                )}
                 {maxDuration(clip) !== Infinity && (
                   <Button
                     size="sm"
