@@ -79,13 +79,6 @@ export function AudioEffectsPanel(p: Props) {
               format={(v) => `${v} m`}
               onCommit={(v) => p.onReverb({ roomSize: v })}
             />
-            <Slider
-              value={[p.reverb.roomSize]}
-              min={2}
-              max={60}
-              step={1}
-              onValueChange={([v = 12]) => p.onReverb({ roomSize: v })}
-            />
             <CommitRow
               label="Decay"
               hint="How long the echo keeps ringing."
@@ -95,13 +88,6 @@ export function AudioEffectsPanel(p: Props) {
               step={0.1}
               format={(v) => `${v.toFixed(1)} s`}
               onCommit={(v) => p.onReverb({ decay: v })}
-            />
-            <Slider
-              value={[p.reverb.decay]}
-              min={0.1}
-              max={12}
-              step={0.1}
-              onValueChange={([v = 1.8]) => p.onReverb({ decay: v })}
             />
             <Row label="Pre-delay" value={`${Math.round(p.reverb.preDelayMs)} ms`}>
             <Slider
