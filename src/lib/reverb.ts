@@ -1,6 +1,6 @@
 import { shCoefficients } from "./sh";
 import type { ReverbConfig } from "./types";
-private rebuildTimer: ReturnType<typeof setTimeout> | null = null;
+
 
 const CH = 16; // 3rd order ACN channel count
 const TAPS = 12;
@@ -28,6 +28,7 @@ function tapDirection(i: number, spread: number) {
  */
 export class ReverbBus {
   /** Feed per-clip sends into this node. */
+  private rebuildTimer: ReturnType<typeof setTimeout> | null = null;
   readonly input: GainNode;
   private ctx: AudioContext;
   private field: ChannelMergerNode;
