@@ -68,7 +68,6 @@ export function AudioEffectsPanel(p: Props) {
               onValueChange={([v = 0.8]) => p.onReverb({ level: v })}
               />
             </Row>
-
            <CommitRow
               label="Room size"
               hint="Bigger rooms space the first bounces further apart."
