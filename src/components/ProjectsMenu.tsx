@@ -19,10 +19,8 @@ type Props = {
   projects: Project[];
   onRename: (name: string) => void;
   onSave: () => void;
-  onSaveAs: (name: string) => void;
   onNew: () => void;
   onOpen: (id: string) => void;
-  onDuplicate: () => void;
   onDelete: () => void;
   onExport: () => void;
   onImport: (file: File) => void;
@@ -105,7 +103,7 @@ export function ProjectsMenu(p: Props) {
               <>
                 <DropdownMenuSeparator />
                 <DropdownMenuLabel className="text-xs text-muted-foreground">
-                  Open
+                  Recent
                 </DropdownMenuLabel>
                 {p.projects.map((pr) => (
                   <DropdownMenuItem key={pr.id} onClick={() => p.onOpen(pr.id)}>
