@@ -38,6 +38,9 @@ export class ReverbBus {
   private tailIn: GainNode;
   private tailDamp: BiquadFilterNode;
   private nodes: AudioNode[] = [];
+  /** Connections from the shared inputs into the current network. */
+  private inputLinks: [AudioNode, AudioNode][] = [];
+  private destroyed = false;
   private cfg: ReverbConfig;
   private buildKey = "";
 
@@ -62,6 +65,7 @@ export class ReverbBus {
   }
 
   apply(cfg: ReverbConfig, force = false) {
+  if (this.destroyed) return;
   this.cfg = cfg;
   const t = this.ctx.currentTime + 0.02;
 
@@ -101,10 +105,34 @@ export class ReverbBus {
 }
 
   private build() {
-    for (const n of this.nodes) n.disconnect();
+    if (this.destroyed) return;
+    const old = this.nodes;
+    const oldInputs = this.inputLinks;
     this.nodes = [];
+    this.inputLinks = [];
+    // Build the new network first so there is no gap in the sound
     this.buildEarly();
     this.buildTail();
+    // Then fully release the old one: cut the shared inputs feeding it too
+    this.releaseNodes(old, oldInputs);
+  }
+
+  private releaseNodes(nodes: AudioNode[], inputs: [AudioNode, AudioNode][]) {
+    for (const [from, to] of inputs) {
+      try {
+        from.disconnect(to);
+      } catch {
+        /* already disconnected */
+      }
+    }
+    for (const n of nodes) {
+      try {
+        n.disconnect();
+      } catch {
+        /* ignore */
+      }
+      if (n instanceof ConvolverNode) n.buffer = null;
+    }
   }
 
   private buildEarly() {
@@ -117,6 +145,7 @@ export class ReverbBus {
       const level = this.ctx.createGain();
       level.gain.value = 0.55 / (1 + i * 0.6);
       this.earlyIn.connect(tap);
+      this.inputLinks.push([this.earlyIn, tap]);
       tap.connect(level);
       this.nodes.push(tap, level);
       const coef = shCoefficients(tapDirection(i, earlySpread));
@@ -141,6 +170,7 @@ export class ReverbBus {
       const g = this.ctx.createGain();
       g.gain.value = tailWeight[order]! * 0.7;
       this.tailIn.connect(conv);
+      this.inputLinks.push([this.tailIn, conv]);
       conv.connect(g);
       g.connect(this.field, 0, c);
       this.nodes.push(conv, g);
@@ -171,12 +201,14 @@ export class ReverbBus {
   }
 
   destroy() {
+  this.destroyed = true;
   if (this.rebuildTimer) {
     clearTimeout(this.rebuildTimer);
     this.rebuildTimer = null;
   }
-  for (const n of this.nodes) n.disconnect();
+  this.releaseNodes(this.nodes, this.inputLinks);
   this.nodes = [];
+  this.inputLinks = [];
   this.input.disconnect();
   this.preDelay.disconnect();
   this.earlyIn.disconnect();
