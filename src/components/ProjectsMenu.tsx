@@ -120,8 +120,8 @@ export function ProjectsMenu(p: Props) {
       </div>
       <p className="text-[11px] text-muted-foreground">
         {p.savedAt
-          ? `Saved ${new Date(p.savedAt).toLocaleTimeString()} · autosaves on this device`
-          : "Not saved yet · autosaves on this device"}
+          ? `Saved ${new Date(p.savedAt).toLocaleTimeString()}`
+          : "Not saved yet"}
       </p>
     </div>
   );
