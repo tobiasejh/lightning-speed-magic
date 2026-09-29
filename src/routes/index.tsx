@@ -626,12 +626,6 @@ export function Studio() {
     }
   }, []);
 
-  // autosave
-  useEffect(() => {
-    if (!loaded) return;
-    const t = setTimeout(() => void persist(buildProject()), 3000);
-    return () => clearTimeout(t);
-  }, [loaded, buildProject, persist]);
 
   const openProject = async (id: string) => {
     const res = await loadProject(id);
