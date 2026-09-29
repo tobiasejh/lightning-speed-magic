@@ -2,6 +2,7 @@ import { Waves } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
+import * as React from "react"
 import type { ReverbConfig, RoomConfig, SoundItem, TimelineClip } from "@/lib/types";
 
 type Props = {
@@ -58,20 +59,26 @@ export function AudioEffectsPanel(p: Props) {
           </Button>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
-          <Row label="Bus level" value={`${Math.round(p.reverb.level * 100)}%`}>
+            <Row label="Bus level" value={`${Math.round(p.reverb.level * 100)}%`}>
             <Slider
               value={[p.reverb.level]}
               min={0}
               max={1}
               step={0.01}
               onValueChange={([v = 0.8]) => p.onReverb({ level: v })}
+              />
+            </Row>
+
+           <CommitRow
+              label="Room size"
+              hint="Bigger rooms space the first bounces further apart."
+              value={p.reverb.roomSize}
+              min={2}
+              max={60}
+              step={1}
+              format={(v) => `${v} m`}
+              onCommit={(v) => p.onReverb({ roomSize: v })}
             />
-          </Row>
-          <Row
-            label="Room size"
-            value={`${p.reverb.roomSize} m`}
-            hint="Bigger rooms space the first bounces further apart."
-          >
             <Slider
               value={[p.reverb.roomSize]}
               min={2}
@@ -79,12 +86,16 @@ export function AudioEffectsPanel(p: Props) {
               step={1}
               onValueChange={([v = 12]) => p.onReverb({ roomSize: v })}
             />
-          </Row>
-          <Row
-            label="Decay"
-            value={`${p.reverb.decay.toFixed(1)} s`}
-            hint="How long the echo keeps ringing."
-          >
+            <CommitRow
+              label="Decay"
+              hint="How long the echo keeps ringing."
+              value={p.reverb.decay}
+              min={0.1}
+              max={12}
+              step={0.1}
+              format={(v) => `${v.toFixed(1)} s`}
+              onCommit={(v) => p.onReverb({ decay: v })}
+            />
             <Slider
               value={[p.reverb.decay]}
               min={0.1}
@@ -92,8 +103,7 @@ export function AudioEffectsPanel(p: Props) {
               step={0.1}
               onValueChange={([v = 1.8]) => p.onReverb({ decay: v })}
             />
-          </Row>
-          <Row label="Pre-delay" value={`${Math.round(p.reverb.preDelayMs)} ms`}>
+            <Row label="Pre-delay" value={`${Math.round(p.reverb.preDelayMs)} ms`}>
             <Slider
               value={[p.reverb.preDelayMs]}
               min={0}
@@ -101,8 +111,8 @@ export function AudioEffectsPanel(p: Props) {
               step={1}
               onValueChange={([v = 20]) => p.onReverb({ preDelayMs: v })}
             />
-          </Row>
-          <Row label="Early reflections" value={`${Math.round(p.reverb.earlyAmount * 100)}%`}>
+            </Row>
+            <Row label="Early reflections" value={`${Math.round(p.reverb.earlyAmount * 100)}%`}>
             <Slider
               value={[p.reverb.earlyAmount]}
               min={0}
@@ -110,25 +120,25 @@ export function AudioEffectsPanel(p: Props) {
               step={0.01}
               onValueChange={([v = 0.6]) => p.onReverb({ earlyAmount: v })}
             />
-          </Row>
-          <Row label="Reflection spread" value={`${Math.round(p.reverb.earlySpread * 100)}%`}>
-            <Slider
-              value={[p.reverb.earlySpread]}
+            </Row>
+            <CommitRow
+              label="Reflection spread"
+              value={p.reverb.earlySpread}
               min={0}
               max={1}
               step={0.01}
-              onValueChange={([v = 0.5]) => p.onReverb({ earlySpread: v })}
+              format={(v) => `${Math.round(v * 100)}%`}
+              onCommit={(v) => p.onReverb({ earlySpread: v })}
             />
-          </Row>
-          <Row label="Damping" value={`${Math.round(p.reverb.damping * 100)}%`}>
-            <Slider
-              value={[p.reverb.damping]}
-              min={0}
-              max={1}
-              step={0.01}
-              onValueChange={([v = 0.35]) => p.onReverb({ damping: v })}
+           <CommitRow
+            label="Damping"
+            value={p.reverb.damping}
+            min={0}
+            max={1}
+            step={0.01}
+            format={(v) => `${Math.round(v * 100)}%`}
+            onCommit={(v) => p.onReverb({ damping: v })}
             />
-          </Row>
         </div>
       </section>
 
@@ -195,5 +205,54 @@ function Row({
       {children}
       {hint && <p className="text-[10px] text-muted-foreground">{hint}</p>}
     </div>
+  );
+}
+
+/** A slider row that shows the value live while dragging, but only applies it on release. */
+function CommitRow({
+  label,
+  hint,
+  value,
+  min,
+  max,
+  step,
+  format,
+  onCommit,
+}: {
+  label: string;
+  hint?: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  format: (v: number) => string;
+  onCommit: (v: number) => void;
+}) {
+  const [local, setLocal] = React.useState(value);
+  const dragging = React.useRef(false);
+
+  // If the value changes from outside (loading a project, etc.), follow it
+  React.useEffect(() => {
+    if (!dragging.current) setLocal(value);
+  }, [value]);
+
+  return (
+    <Row label={label} value={format(local)} hint={hint}>
+      <Slider
+        value={[local]}
+        min={min}
+        max={max}
+        step={step}
+        onValueChange={([v = value]) => {
+          dragging.current = true;
+          setLocal(v);
+        }}
+        onValueCommit={([v = value]) => {
+          dragging.current = false;
+          setLocal(v);
+          onCommit(v);
+        }}
+      />
+    </Row>
   );
 }
