@@ -62,33 +62,43 @@ export class ReverbBus {
   }
 
   apply(cfg: ReverbConfig, force = false) {
-    const prev = this.cfg;
-    this.cfg = cfg;
-    const t = this.ctx.currentTime + 0.02;
-    this.input.gain.setTargetAtTime(cfg.enabled ? cfg.level : 0, t, 0.05);
-    this.earlyIn.gain.setTargetAtTime(cfg.earlyAmount, t, 0.05);
-    this.tailIn.gain.setTargetAtTime(1, t, 0.05);
-    const cutoff = 1200 + (1 - cfg.damping) * 16000;
-    this.earlyDamp.frequency.setTargetAtTime(Math.min(18000, cutoff * 1.3), t, 0.05);
-    this.tailDamp.frequency.setTargetAtTime(Math.min(18000, cutoff), t, 0.05);
-    this.preDelay.delayTime.setTargetAtTime(Math.min(0.9, cfg.preDelayMs / 1000), t, 0.05);
-    const prev = this.cfg;
-  // ... all the setTargetAtTime lines stay exactly as they are ...
+  this.cfg = cfg;
+  const t = this.ctx.currentTime + 0.02;
 
+  // Cheap parameters: update live, no rebuild needed
+  this.input.gain.setTargetAtTime(cfg.enabled ? cfg.level : 0, t, 0.05);
+  this.earlyIn.gain.setTargetAtTime(cfg.earlyAmount, t, 0.05);
+  this.tailIn.gain.setTargetAtTime(1, t, 0.05);
+  const cutoff = 1200 + (1 - cfg.damping) * 16000;
+  this.earlyDamp.frequency.setTargetAtTime(Math.min(18000, cutoff * 1.3), t, 0.05);
+  this.tailDamp.frequency.setTargetAtTime(Math.min(18000, cutoff), t, 0.05);
+  this.preDelay.delayTime.setTargetAtTime(Math.min(0.9, cfg.preDelayMs / 1000), t, 0.05);
+
+  // Expensive parameters: changing these means rebuilding the taps and convolvers
   const key = JSON.stringify([cfg.roomSize, cfg.decay, cfg.damping, cfg.earlySpread]);
+
   if (force) {
+    // Initial build (constructor): do it immediately
+    if (this.rebuildTimer) {
+      clearTimeout(this.rebuildTimer);
+      this.rebuildTimer = null;
+    }
     this.buildKey = key;
     this.build();
     return;
   }
+
   if (key !== this.buildKey) {
     this.buildKey = key;
+    // Restart the timer on every change, so the rebuild only runs
+    // once the slider has been still for 250 ms
     if (this.rebuildTimer) clearTimeout(this.rebuildTimer);
     this.rebuildTimer = setTimeout(() => {
       this.rebuildTimer = null;
       this.build();
     }, 250);
   }
+}
 
   private build() {
     for (const n of this.nodes) n.disconnect();
@@ -161,13 +171,17 @@ export class ReverbBus {
   }
 
   destroy() {
-    for (const n of this.nodes) n.disconnect();
-    this.nodes = [];
-    this.input.disconnect();
-    this.preDelay.disconnect();
-    this.earlyIn.disconnect();
-    this.earlyDamp.disconnect();
-    this.tailIn.disconnect();
-    this.tailDamp.disconnect();
+  if (this.rebuildTimer) {
+    clearTimeout(this.rebuildTimer);
+    this.rebuildTimer = null;
   }
+  for (const n of this.nodes) n.disconnect();
+  this.nodes = [];
+  this.input.disconnect();
+  this.preDelay.disconnect();
+  this.earlyIn.disconnect();
+  this.earlyDamp.disconnect();
+  this.tailIn.disconnect();
+  this.tailDamp.disconnect();
+}
 }
