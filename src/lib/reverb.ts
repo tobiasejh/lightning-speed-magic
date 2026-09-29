@@ -1,5 +1,6 @@
 import { shCoefficients } from "./sh";
 import type { ReverbConfig } from "./types";
+private rebuildTimer: ReturnType<typeof setTimeout> | null = null;
 
 const CH = 16; // 3rd order ACN channel count
 const TAPS = 12;
@@ -70,11 +71,22 @@ export class ReverbBus {
     this.earlyDamp.frequency.setTargetAtTime(Math.min(18000, cutoff * 1.3), t, 0.05);
     this.tailDamp.frequency.setTargetAtTime(Math.min(18000, cutoff), t, 0.05);
     this.preDelay.delayTime.setTargetAtTime(Math.min(0.9, cfg.preDelayMs / 1000), t, 0.05);
-    const key = JSON.stringify([cfg.roomSize, cfg.decay, cfg.damping, cfg.earlySpread]);
-    if (force || key !== this.buildKey || prev.roomSize !== cfg.roomSize) {
-      this.buildKey = key;
+    const prev = this.cfg;
+  // ... all the setTargetAtTime lines stay exactly as they are ...
+
+  const key = JSON.stringify([cfg.roomSize, cfg.decay, cfg.damping, cfg.earlySpread]);
+  if (force) {
+    this.buildKey = key;
+    this.build();
+    return;
+  }
+  if (key !== this.buildKey) {
+    this.buildKey = key;
+    if (this.rebuildTimer) clearTimeout(this.rebuildTimer);
+    this.rebuildTimer = setTimeout(() => {
+      this.rebuildTimer = null;
       this.build();
-    }
+    }, 250);
   }
 
   private build() {
