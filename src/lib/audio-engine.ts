@@ -570,5 +570,6 @@ export class SpatialEngine {
     for (const id of [...this.sources.keys()]) this.removeSound(id);
     this.reverb.destroy();
     void this.ctx.close();
+    console.log("Destroyer called");
   }
 }
