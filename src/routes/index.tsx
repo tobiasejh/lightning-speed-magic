@@ -1342,21 +1342,8 @@ export function Studio() {
             projects={projects.filter((p) => p.id !== projectId)}
             onRename={setProjectName}
             onSave={() => void persist(buildProject())}
-            onSaveAs={(name) => {
-              const id = `p${Date.now()}`;
-              setProjectId(id);
-              setProjectName(name);
-              void persist(buildProject(id, name));
-            }}
             onNew={newProject}
             onOpen={(id) => void openProject(id)}
-            onDuplicate={() => {
-              const id = `p${Date.now()}`;
-              const name = `${projectName} copy`;
-              setProjectId(id);
-              setProjectName(name);
-              void persist(buildProject(id, name));
-            }}
             onDelete={() => {
               void deleteProject(projectId).then(() => {
                 newProject();

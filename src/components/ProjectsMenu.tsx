@@ -1,4 +1,4 @@
-import { Copy, Download, FolderOpen, Plus, Save, Trash2, Upload } from "lucide-react";
+import { Download, FolderOpen, Plus, Save, Trash2, Upload } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -87,22 +87,11 @@ export function ProjectsMenu(p: Props) {
             <DropdownMenuItem onClick={p.onNew}>
               <Plus className="size-4" /> New project
             </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => {
-                const n = window.prompt("Save as", `${p.name} copy`);
-                if (n) p.onSaveAs(n);
-              }}
-            >
-              <Save className="size-4" /> Save as…
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={p.onDuplicate}>
-              <Copy className="size-4" /> Duplicate
-            </DropdownMenuItem>
             <DropdownMenuItem onClick={p.onExport}>
-              <Download className="size-4" /> Export .prism file
+              <Download className="size-4" /> Save as… (.prism)
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => fileRef.current?.click()}>
-              <Upload className="size-4" /> Import .prism file
+              <Upload className="size-4" /> Open project… (.prism)
             </DropdownMenuItem>
             <DropdownMenuItem
               className="text-destructive focus:text-destructive"
