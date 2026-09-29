@@ -178,7 +178,7 @@ function Row({
 }: {
   label: string;
   value: string;
-  hint?: string;
+  hint?: string | undefined;
   children: React.ReactNode;
 }) {
   return (
@@ -205,7 +205,7 @@ function CommitRow({
   onCommit,
 }: {
   label: string;
-  hint?: string;
+  hint?: string | undefined;
   value: number;
   min: number;
   max: number;
