@@ -288,6 +288,10 @@ export function SurfaceLayer({ surface, index, stage, globals, testPattern, leve
         filter: `brightness(${globals.brightness})`,
         pointerEvents: "none",
         transition: "opacity 120ms linear",
+        clipPath:
+          surface.outline && surface.outline.length > 4
+            ? `polygon(${surface.outline.map((o) => `${o.u * 100}% ${o.v * 100}%`).join(", ")})`
+            : undefined,
       }}
     >
       {drawCanvas ? (

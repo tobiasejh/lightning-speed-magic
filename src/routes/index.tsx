@@ -94,7 +94,17 @@ import {
   type TimelineTrack,
   type Vec3,
 } from "@/lib/types";
-import { clampCorners, clampPoint, defaultCorners, lockRectAspect, type Pt } from "@/lib/warp";
+import {
+  clampCorners,
+  clampPoint,
+  closestOnSegment,
+  defaultCorners,
+  defaultOutline,
+  lockRectAspect,
+  outlineStagePoints,
+  stageToUv,
+  type Pt,
+} from "@/lib/warp";
 import { visuals } from "@/lib/visuals";
 import { decodeWaveform } from "@/lib/waveform";
 
@@ -626,7 +636,6 @@ export function Studio() {
     }
   }, []);
 
-
   const openProject = async (id: string) => {
     const res = await loadProject(id);
     if (res) await applyProject(res.project, res.blobs);
@@ -1032,6 +1041,65 @@ export function Studio() {
     setMedia((prev) => [...prev, item]);
     setEditMediaId(id);
     if (channelRef.current) sendMedia(channelRef.current, [item]);
+  };
+
+  /** Click an edge of the selected surface: split it with a new point and start dragging it. */
+  const addEdgePoint = (edge: number) => (e: React.PointerEvent<SVGLineElement>) => {
+    if (!selected || e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = stageRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const outline =
+      selected.outline && selected.outline.length >= 4 ? selected.outline : defaultOutline();
+    const pts = outlineStagePoints(selected.corners, outline.length > 4 ? outline : undefined);
+    const a = pts[edge]!;
+    const b = pts[(edge + 1) % pts.length]!;
+    const p = { x: (e.clientX - rect.left) / rect.width, y: (e.clientY - rect.top) / rect.height };
+    const { point } = closestOnSegment(p, a, b);
+    const uv = stageToUv(selected.corners, point);
+    const next = [...outline];
+    next.splice(edge + 1, 0, { u: uv.u, v: uv.v });
+    patch(selected.id, { outline: next });
+  };
+
+  const dragOutlinePoint = (index: number) => (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!selected) return;
+    e.preventDefault();
+    if (e.button === 2) return;
+    const target = e.currentTarget;
+    target.setPointerCapture(e.pointerId);
+    const rect = stageRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const move = (ev: PointerEvent) => {
+      const p = clampPoint({
+        x: (ev.clientX - rect.left) / rect.width,
+        y: (ev.clientY - rect.top) / rect.height,
+      });
+      setSurfaces((prev) =>
+        prev.map((s) => {
+          if (s.id !== selected.id || !s.outline) return s;
+          const uv = stageToUv(s.corners, p);
+          return {
+            ...s,
+            outline: s.outline.map((o, i) => (i === index ? { u: uv.u, v: uv.v } : o)),
+          };
+        }),
+      );
+    };
+    const up = () => {
+      target.removeEventListener("pointermove", move);
+      target.removeEventListener("pointerup", up);
+    };
+    target.addEventListener("pointermove", move);
+    target.addEventListener("pointerup", up);
+  };
+
+  const removeOutlinePoint = (index: number) => (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (!selected?.outline) return;
+    const next = selected.outline.filter((_, i) => i !== index);
+    patch(selected.id, { outline: next.length > 4 ? next : undefined });
   };
 
   const dragCorner = (index: number) => (e: React.PointerEvent<HTMLDivElement>) => {
@@ -1660,7 +1728,9 @@ export function Studio() {
                       size="sm"
                       variant="secondary"
                       className="w-full"
-                      onClick={() => patch(s.id, { corners: defaultCorners(0.05) })}
+                      onClick={() =>
+                        patch(s.id, { corners: defaultCorners(0.05), outline: undefined })
+                      }
                     >
                       Reset shape
                     </Button>
@@ -2050,7 +2120,9 @@ export function Studio() {
                 .map((s) => (
                   <polygon
                     key={s.id}
-                    points={s.corners.map((c) => `${c.x * stage.w},${c.y * stage.h}`).join(" ")}
+                    points={outlineStagePoints(s.corners, s.outline)
+                      .map((c) => `${c.x * stage.w},${c.y * stage.h}`)
+                      .join(" ")}
                     onPointerDown={() => setSelectedId(s.id)}
                     className={`pointer-events-auto cursor-pointer stroke-primary/70 ${
                       s.id === selected?.id
@@ -2069,12 +2141,52 @@ export function Studio() {
                 .map((s) => (
                   <svg key={s.id} className="pointer-events-none absolute inset-0 size-full">
                     <polygon
-                      points={s.corners.map((c) => `${c.x * stage.w},${c.y * stage.h}`).join(" ")}
+                      points={outlineStagePoints(s.corners, s.outline)
+                        .map((c) => `${c.x * stage.w},${c.y * stage.h}`)
+                        .join(" ")}
                       className="fill-none stroke-muted-foreground/40"
                       strokeDasharray="4 4"
                     />
                   </svg>
                 ))}
+              {selected && (
+                <svg className="pointer-events-none absolute inset-0 z-[5] size-full">
+                  {(() => {
+                    const pts = outlineStagePoints(selected.corners, selected.outline);
+                    return pts.map((a, i) => {
+                      const b = pts[(i + 1) % pts.length]!;
+                      return (
+                        <line
+                          key={i}
+                          x1={a.x * stage.w}
+                          y1={a.y * stage.h}
+                          x2={b.x * stage.w}
+                          y2={b.y * stage.h}
+                          onPointerDown={addEdgePoint(i)}
+                          strokeWidth={12}
+                          className="pointer-events-auto cursor-copy stroke-transparent hover:stroke-primary/30"
+                        >
+                          <title>Click to add a point here</title>
+                        </line>
+                      );
+                    });
+                  })()}
+                </svg>
+              )}
+              {selected?.outline &&
+                selected.outline.length > 4 &&
+                outlineStagePoints(selected.corners, selected.outline).map((c, i) =>
+                  selected.outline![i]!.c !== undefined ? null : (
+                    <div
+                      key={`op-${i}`}
+                      onPointerDown={dragOutlinePoint(i)}
+                      onContextMenu={removeOutlinePoint(i)}
+                      title="Drag to move · right-click to remove"
+                      className="absolute z-10 size-3.5 -translate-x-1/2 -translate-y-1/2 cursor-grab touch-none rounded-full border-2 border-primary bg-background active:cursor-grabbing"
+                      style={{ left: c.x * stage.w, top: c.y * stage.h }}
+                    />
+                  ),
+                )}
               {selected?.corners.map((c, i) => (
                 <div
                   key={i}

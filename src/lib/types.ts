@@ -1,4 +1,4 @@
-import type { Pt } from "./warp";
+import type { OutlinePt, Pt } from "./warp";
 
 /** Normalised crop rectangle (0..1) inside the source frame. */
 export type Crop = { x: number; y: number; w: number; h: number };
@@ -50,6 +50,8 @@ export type Surface = {
   renderH: number;
   /** keep the mapped shape at the render aspect ratio */
   lockAspect: boolean;
+  /** custom shape: more than 4 points makes a cut-out polygon; corners still drive the warp */
+  outline?: OutlinePt[] | undefined;
 };
 
 /** Share of the shared show canvas a projector displays (0..1). */
