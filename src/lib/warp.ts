@@ -161,7 +161,7 @@ export const uvToStage = (corners: Pt[], u: number, v: number): Pt => {
   return m ? applyH(m, u, v) : { x: u, y: v };
 };
 
-/** Stage position back to content (u,v). */
+/** Stage position back to content (u,v). Values may extend beyond the base quad. */
 export const stageToUv = (corners: Pt[], p: Pt): { u: number; v: number } => {
   const m = homography(corners);
   if (!m) return { u: p.x, v: p.y };
@@ -188,7 +188,7 @@ export const stageToUv = (corners: Pt[], p: Pt): { u: number; v: number } => {
     a * e - b * d,
   ];
   const r = applyH(inv, p.x, p.y);
-  return { u: clamp01(r.x), v: clamp01(r.y) };
+  return { u: r.x, v: r.y };
 };
 
 /** Outline points in stage space (0..1), following the warp corners. */
