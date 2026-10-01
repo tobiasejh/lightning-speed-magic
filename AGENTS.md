@@ -8,3 +8,5 @@
 > Commits you push to the connected branch sync back to Lovable and show up in
 > the editor, so keep the branch in a working state.
 <!-- LOVABLE:END -->
+
+- Custom surface outline points use unbounded content coordinates, while the four warp corners remain display-clamped, so polygon edges can extend beyond the base quad.

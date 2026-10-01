@@ -256,11 +256,33 @@ export function SurfaceLayer({ surface, index, stage, globals, testPattern, leve
   }, [directVideo]);
 
   const px = surface.corners.map((c) => ({ x: c.x * stage.w, y: c.y * stage.h }));
+  const activeOutline = surface.outline && surface.outline.length > 4 ? surface.outline : undefined;
+  const contentBounds = activeOutline?.reduce(
+    (bounds, point) => ({
+      minU: Math.min(bounds.minU, point.u),
+      minV: Math.min(bounds.minV, point.v),
+      maxU: Math.max(bounds.maxU, point.u),
+      maxV: Math.max(bounds.maxV, point.v),
+    }),
+    { minU: 0, minV: 0, maxU: 1, maxV: 1 },
+  ) ?? { minU: 0, minV: 0, maxU: 1, maxV: 1 };
+  const contentRange = {
+    u: Math.max(0.01, contentBounds.maxU - contentBounds.minU),
+    v: Math.max(0.01, contentBounds.maxV - contentBounds.minV),
+  };
+  const clipPath = activeOutline
+    ? `polygon(${activeOutline
+        .map(
+          (point) =>
+            `${((point.u - contentBounds.minU) / contentRange.u) * 100}% ${((point.v - contentBounds.minV) / contentRange.v) * 100}%`,
+        )
+        .join(", ")})`
+    : undefined;
   const rotate = ((surface.rotate % 360) + 360) % 360;
   const swap = rotate % 180 !== 0;
   const frame = {
-    w: Math.max(1, swap ? stage.h : stage.w),
-    h: Math.max(1, swap ? stage.w : stage.h),
+    w: Math.max(1, swap ? stage.h * contentRange.v : stage.w * contentRange.u),
+    h: Math.max(1, swap ? stage.w * contentRange.u : stage.h * contentRange.v),
   };
   const sourceSize = {
     w: isVideoElement(media) ? media.videoWidth || videoSize.w : videoSize.w,
@@ -288,35 +310,42 @@ export function SurfaceLayer({ surface, index, stage, globals, testPattern, leve
         filter: `brightness(${globals.brightness})`,
         pointerEvents: "none",
         transition: "opacity 120ms linear",
-        clipPath:
-          surface.outline && surface.outline.length > 4
-            ? `polygon(${surface.outline.map((o) => `${o.u * 100}% ${o.v * 100}%`).join(", ")})`
-            : undefined,
       }}
     >
-      {drawCanvas ? (
-        <canvas
-          ref={canvasRef}
-          width={Math.max(64, Math.min(3840, Math.round(surface.renderW || 1280)))}
-          height={Math.max(64, Math.min(2160, Math.round(surface.renderH || 720)))}
-          style={{ width: "100%", height: "100%", display: "block" }}
-        />
-      ) : (
-        <div
-          ref={videoFrameRef}
-          className="absolute overflow-hidden bg-background"
-          style={{
-            left: "50%",
-            top: "50%",
-            width: frame.w,
-            height: frame.h,
-            transformOrigin: "50% 50%",
-            transform: `translate(-50%, -50%) rotate(${rotate}deg) scale(${surface.flipH ? -1 : 1}, ${surface.flipV ? -1 : 1})`,
-          }}
-        >
-          <video ref={videoRef} src={videoSrc} muted playsInline loop style={videoStyle} />
-        </div>
-      )}
+      <div
+        className="absolute overflow-visible"
+        style={{
+          left: `${contentBounds.minU * 100}%`,
+          top: `${contentBounds.minV * 100}%`,
+          width: `${contentRange.u * 100}%`,
+          height: `${contentRange.v * 100}%`,
+          clipPath,
+        }}
+      >
+        {drawCanvas ? (
+          <canvas
+            ref={canvasRef}
+            width={Math.max(64, Math.min(3840, Math.round((surface.renderW || 1280) * contentRange.u)))}
+            height={Math.max(64, Math.min(2160, Math.round((surface.renderH || 720) * contentRange.v)))}
+            style={{ width: "100%", height: "100%", display: "block" }}
+          />
+        ) : (
+          <div
+            ref={videoFrameRef}
+            className="absolute overflow-hidden bg-background"
+            style={{
+              left: "50%",
+              top: "50%",
+              width: frame.w,
+              height: frame.h,
+              transformOrigin: "50% 50%",
+              transform: `translate(-50%, -50%) rotate(${rotate}deg) scale(${surface.flipH ? -1 : 1}, ${surface.flipV ? -1 : 1})`,
+            }}
+          >
+            <video ref={videoRef} src={videoSrc} muted playsInline loop style={videoStyle} />
+          </div>
+        )}
+      </div>
     </div>
   );
 }

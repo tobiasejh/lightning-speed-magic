@@ -50,7 +50,7 @@ export type Surface = {
   renderH: number;
   /** keep the mapped shape at the render aspect ratio */
   lockAspect: boolean;
-  /** custom shape: more than 4 points makes a cut-out polygon; corners still drive the warp */
+  /** custom shape: more than 4 points makes a polygon that may extend beyond the base warp quad */
   outline?: OutlinePt[] | undefined;
 };
 
