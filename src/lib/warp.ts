@@ -165,11 +165,27 @@ export const uvToStage = (corners: Pt[], u: number, v: number): Pt => {
 export const stageToUv = (corners: Pt[], p: Pt): { u: number; v: number } => {
   const m = homography(corners);
   if (!m) return { u: p.x, v: p.y };
-  const [a, b, c, d, e, f, g, h, i] = m as [number, number, number, number, number, number, number, number, number];
+  const [a, b, c, d, e, f, g, h, i] = m as [
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+  ];
   const inv = [
-    e * i - f * h, c * h - b * i, b * f - c * e,
-    f * g - d * i, a * i - c * g, c * d - a * f,
-    d * h - e * g, b * g - a * h, a * e - b * d,
+    e * i - f * h,
+    c * h - b * i,
+    b * f - c * e,
+    f * g - d * i,
+    a * i - c * g,
+    c * d - a * f,
+    d * h - e * g,
+    b * g - a * h,
+    a * e - b * d,
   ];
   const r = applyH(inv, p.x, p.y);
   return { u: clamp01(r.x), v: clamp01(r.y) };
@@ -178,7 +194,9 @@ export const stageToUv = (corners: Pt[], p: Pt): { u: number; v: number } => {
 /** Outline points in stage space (0..1), following the warp corners. */
 export const outlineStagePoints = (corners: Pt[], outline: OutlinePt[] | undefined): Pt[] => {
   if (!outline || outline.length <= 4) return corners;
-  return outline.map((o) => (o.c !== undefined && corners[o.c] ? corners[o.c]! : uvToStage(corners, o.u, o.v)));
+  return outline.map((o) =>
+    o.c !== undefined && corners[o.c] ? corners[o.c]! : uvToStage(corners, o.u, o.v),
+  );
 };
 
 /** Closest point on segment a-b to p, and how far along (0..1). */

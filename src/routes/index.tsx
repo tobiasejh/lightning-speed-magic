@@ -636,7 +636,6 @@ export function Studio() {
     }
   }, []);
 
-
   const openProject = async (id: string) => {
     const res = await loadProject(id);
     if (res) await applyProject(res.project, res.blobs);
@@ -1051,7 +1050,8 @@ export function Studio() {
     e.stopPropagation();
     const rect = stageRef.current?.getBoundingClientRect();
     if (!rect) return;
-    const outline = selected.outline && selected.outline.length >= 4 ? selected.outline : defaultOutline();
+    const outline =
+      selected.outline && selected.outline.length >= 4 ? selected.outline : defaultOutline();
     const pts = outlineStagePoints(selected.corners, outline.length > 4 ? outline : undefined);
     const a = pts[edge]!;
     const b = pts[(edge + 1) % pts.length]!;
@@ -1060,7 +1060,6 @@ export function Studio() {
     const uv = stageToUv(selected.corners, point);
     const next = [...outline];
     next.splice(edge + 1, 0, { u: uv.u, v: uv.v });
-    commit();
     patch(selected.id, { outline: next });
   };
 
@@ -1072,7 +1071,6 @@ export function Studio() {
     target.setPointerCapture(e.pointerId);
     const rect = stageRef.current?.getBoundingClientRect();
     if (!rect) return;
-    commit();
     const move = (ev: PointerEvent) => {
       const p = clampPoint({
         x: (ev.clientX - rect.left) / rect.width,
@@ -1082,7 +1080,10 @@ export function Studio() {
         prev.map((s) => {
           if (s.id !== selected.id || !s.outline) return s;
           const uv = stageToUv(s.corners, p);
-          return { ...s, outline: s.outline.map((o, i) => (i === index ? { u: uv.u, v: uv.v } : o)) };
+          return {
+            ...s,
+            outline: s.outline.map((o, i) => (i === index ? { u: uv.u, v: uv.v } : o)),
+          };
         }),
       );
     };
@@ -1097,7 +1098,6 @@ export function Studio() {
   const removeOutlinePoint = (index: number) => (e: React.MouseEvent) => {
     e.preventDefault();
     if (!selected?.outline) return;
-    commit();
     const next = selected.outline.filter((_, i) => i !== index);
     patch(selected.id, { outline: next.length > 4 ? next : undefined });
   };
@@ -1728,7 +1728,9 @@ export function Studio() {
                       size="sm"
                       variant="secondary"
                       className="w-full"
-                      onClick={() => patch(s.id, { corners: defaultCorners(0.05), outline: undefined })}
+                      onClick={() =>
+                        patch(s.id, { corners: defaultCorners(0.05), outline: undefined })
+                      }
                     >
                       Reset shape
                     </Button>
@@ -2118,7 +2120,9 @@ export function Studio() {
                 .map((s) => (
                   <polygon
                     key={s.id}
-                    points={outlineStagePoints(s.corners, s.outline).map((c) => `${c.x * stage.w},${c.y * stage.h}`).join(" ")}
+                    points={outlineStagePoints(s.corners, s.outline)
+                      .map((c) => `${c.x * stage.w},${c.y * stage.h}`)
+                      .join(" ")}
                     onPointerDown={() => setSelectedId(s.id)}
                     className={`pointer-events-auto cursor-pointer stroke-primary/70 ${
                       s.id === selected?.id
@@ -2137,7 +2141,9 @@ export function Studio() {
                 .map((s) => (
                   <svg key={s.id} className="pointer-events-none absolute inset-0 size-full">
                     <polygon
-                      points={outlineStagePoints(s.corners, s.outline).map((c) => `${c.x * stage.w},${c.y * stage.h}`).join(" ")}
+                      points={outlineStagePoints(s.corners, s.outline)
+                        .map((c) => `${c.x * stage.w},${c.y * stage.h}`)
+                        .join(" ")}
                       className="fill-none stroke-muted-foreground/40"
                       strokeDasharray="4 4"
                     />
