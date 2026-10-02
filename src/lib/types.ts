@@ -235,7 +235,13 @@ export type SoundItem = {
   mediaId?: string;
 };
 
-export type Speaker = { id: string; name: string; position: Vec3 };
+export type Speaker = {
+  id: string;
+  name: string;
+  position: Vec3;
+  /** 0-based output channel on the audio device; defaults to the speaker's list position */
+  channel?: number | undefined;
+};
 
 export type OutputMode = "headphones" | "speakers";
 
