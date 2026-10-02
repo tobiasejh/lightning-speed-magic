@@ -95,8 +95,20 @@ export class SpatialEngine {
     return silentLevels;
   }
 
+  /** Re-read how many outputs the device offers and rebuild routing if it changed. */
+  refreshChannels() {
+    const max = this.ctx.destination.maxChannelCount || 2;
+    if (max !== this.maxChannels) {
+      this.maxChannels = max;
+      this.decoderKey = "";
+      this.applyRoom(this.room, true);
+    }
+    return this.maxChannels;
+  }
+
   resume() {
-    if (this.ctx.state === "suspended") void this.ctx.resume();
+    if (this.ctx.state === "suspended")
+      void this.ctx.resume().then(() => this.refreshChannels());
   }
 
   async setOutputDevice(deviceId: string) {
@@ -178,7 +190,8 @@ export class SpatialEngine {
     const n = Math.max(1, spk.length);
     let merger: ChannelMergerNode | null = null;
     if (outputMode === "speakers") {
-      const outCh = Math.max(1, Math.min(n, this.maxChannels));
+      const wanted = Math.max(n, ...speakers.map((sp, k) => (sp.channel ?? k) + 1));
+      const outCh = Math.max(1, Math.min(wanted, this.maxChannels));
       merger = this.ctx.createChannelMerger(outCh);
       try {
         this.ctx.destination.channelCount = outCh;
@@ -219,7 +232,7 @@ export class SpatialEngine {
         p.connect(this.master);
         this.decoderNodes.push(p);
       } else if (merger) {
-        sum.connect(merger, 0, k % merger.numberOfInputs); // fold extra speakers down
+        sum.connect(merger, 0, (sp.channel ?? k) % merger.numberOfInputs); // fold extra speakers down
       }
     });
   }
