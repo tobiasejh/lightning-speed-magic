@@ -107,8 +107,7 @@ export class SpatialEngine {
   }
 
   resume() {
-    if (this.ctx.state === "suspended")
-      void this.ctx.resume().then(() => this.refreshChannels());
+    if (this.ctx.state === "suspended") void this.ctx.resume().then(() => this.refreshChannels());
   }
 
   async setOutputDevice(deviceId: string) {

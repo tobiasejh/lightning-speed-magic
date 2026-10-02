@@ -1876,6 +1876,7 @@ export function Studio() {
                 room={room}
                 onRoom={patchRoom}
                 maxChannels={maxChannels}
+                onRefreshChannels={() => setMaxChannels(engine().refreshChannels())}
                 devices={devices}
                 deviceId={deviceId}
                 onDevice={(id) => {

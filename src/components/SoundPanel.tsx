@@ -35,6 +35,7 @@ type Props = {
   room: RoomConfig;
   onRoom: (next: Partial<RoomConfig>) => void;
   maxChannels: number;
+  onRefreshChannels: () => void;
   devices: MediaDeviceInfo[];
   deviceId: string;
   onDevice: (id: string) => void;
@@ -249,13 +250,56 @@ export function SoundPanel(p: Props) {
                 </Button>
               </div>
             )}
+            <div className="space-y-1">
+              {p.room.speakers.map((sp, k) => (
+                <div key={sp.id} className="flex items-center gap-2 text-xs">
+                  <span className="w-14 truncate" title={sp.name}>
+                    {sp.name || `S${k + 1}`}
+                  </span>
+                  <Select
+                    value={String(sp.channel ?? k)}
+                    onValueChange={(v) =>
+                      p.onRoom({
+                        speakers: p.room.speakers.map((o) =>
+                          o.id === sp.id ? { ...o, channel: Number(v) } : o,
+                        ),
+                      })
+                    }
+                  >
+                    <SelectTrigger
+                      className="h-7 flex-1"
+                      aria-label={`Output channel for ${sp.name}`}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Array.from(
+                        { length: Math.max(p.maxChannels, (sp.channel ?? k) + 1) },
+                        (_, c) => (
+                          <SelectItem key={c} value={String(c)} disabled={c >= p.maxChannels}>
+                            Output {c + 1}
+                            {c >= p.maxChannels ? " (not available)" : ""}
+                          </SelectItem>
+                        ),
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ))}
+            </div>
             <p className="text-[11px] text-muted-foreground">
               Your audio device reports {p.maxChannels} output channel
               {p.maxChannels === 1 ? "" : "s"}.
               {p.room.speakers.length > p.maxChannels
                 ? ` Speakers beyond ${p.maxChannels} are folded down onto the available channels.`
                 : ""}
+              {p.maxChannels <= 2
+                ? " To use more, set your sound card to 5.1, 7.1 or more channels in your computer's sound settings (Windows: Sound > your device > Configure / Properties > Advanced), then press Re-check."
+                : ""}
             </p>
+            <Button size="sm" variant="secondary" className="w-full" onClick={p.onRefreshChannels}>
+              Re-check output channels
+            </Button>
           </>
         )}
         {p.devices.length > 0 && (
