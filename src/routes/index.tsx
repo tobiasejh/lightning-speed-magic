@@ -107,6 +107,7 @@ import {
 } from "@/lib/warp";
 import { visuals } from "@/lib/visuals";
 import { decodeWaveform } from "@/lib/waveform";
+import innopixel_logo from "@/assets/innopixel_logo.png";
 
 const title = "Prism — Projection Mapping in Your Browser";
 const description =
@@ -1388,11 +1389,13 @@ export function Studio() {
       >
         <header>
           <h1 className="flex items-center gap-2 text-lg font-semibold tracking-tight">
-            <Zap className="size-5 text-primary" />
-            Prism
+               <h1 className="flex items-center gap-2 text-lg font-semibold tracking-tight">
+                  <img src={innopixel_logo} alt="Prism logo" className="h-8 w-auto" />
+                  "Name"
+               </h1>
           </h1>
           <p className="mt-1 text-xs text-muted-foreground">
-            Projection mapping and spatial sound straight from the browser.
+            Projection mapping and spatial sound.
           </p>
         </header>
 
