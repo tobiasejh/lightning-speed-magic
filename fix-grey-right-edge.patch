@@ -1,0 +1,33 @@
+diff --git a/src/components/SurfaceLayer.tsx b/src/components/SurfaceLayer.tsx
+index 12be5e7..6307b47 100644
+--- a/src/components/SurfaceLayer.tsx
++++ b/src/components/SurfaceLayer.tsx
+@@ -39,6 +39,12 @@ const fitVideo = (
+     h: Math.max(0.01, Math.min(1, crop.h)),
+   };
+ 
++  // Tailwind's preflight sets `max-width: 100%` on every <video>. These videos are
++  // deliberately sized larger than the frame (cover / crop) and clipped by the frame, so
++  // that rule would clamp the width, squash the picture and leave the right-hand side of
++  // the surface empty (the frame's grey background showing through).
++  const unclamped = { maxWidth: "none", maxHeight: "none" } as const;
++
+   if (fit === "stretch" || fit === "fill" || !source.w || !source.h) {
+     return {
+       position: "absolute",
+@@ -47,6 +53,7 @@ const fitVideo = (
+       width: `${100 / safeCrop.w}%`,
+       height: `${100 / safeCrop.h}%`,
+       objectFit: "fill",
++      ...unclamped,
+     };
+   }
+ 
+@@ -63,6 +70,7 @@ const fitVideo = (
+     width,
+     height,
+     objectFit: "fill",
++    ...unclamped,
+   };
+ };
+ 
