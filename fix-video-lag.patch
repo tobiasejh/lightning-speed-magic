@@ -1,0 +1,266 @@
+diff --git a/electron/main.cjs b/electron/main.cjs
+index 795b079..f01c1dd 100644
+--- a/electron/main.cjs
++++ b/electron/main.cjs
+@@ -50,7 +50,10 @@ function makeWindow(route, options = {}) {
+     height: options.height ?? 900,
+     backgroundColor: "#0b0d12",
+     autoHideMenuBar: true,
+-    webPreferences: { contextIsolation: true, nodeIntegration: false },
++    // Projector windows sit behind or beside the editor. With throttling on, Chromium slows
++    // their timers and animation frames when they are hidden or covered, which breaks
++    // video sync and makes playback stutter.
++    webPreferences: { contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
+   });
+   win.webContents.setWindowOpenHandler(({ url }) => {
+     // projector windows open as extra app windows
+diff --git a/src/components/SurfaceLayer.tsx b/src/components/SurfaceLayer.tsx
+index b8a6b53..12be5e7 100644
+--- a/src/components/SurfaceLayer.tsx
++++ b/src/components/SurfaceLayer.tsx
+@@ -205,19 +205,66 @@ export function SurfaceLayer({ surface, index, stage, globals, testPattern, leve
+         setVideoSize({ w: video.videoWidth, h: video.videoHeight });
+     };
+ 
++    // The visible <video> is a second decoder that follows the hidden `source` clock.
++    // Hard seeks on a playing MP4 are slow (jump to a keyframe, decode forward), so:
++    //  - small drift is corrected by nudging playbackRate, not by seeking
++    //  - big drift triggers one seek, then a cooldown, and never a seek during a seek
++    // Otherwise a seek that takes >100 ms leaves the gap open, the next tick seeks
++    // again, and playback stutters in a loop.
++    const HARD_SEEK_DRIFT = 0.4; // seconds
++    const NUDGE_DRIFT = 0.04; // seconds
++    const NUDGE_RATE = 0.05; // +/-5% speed while catching up
++    const SEEK_COOLDOWN_MS = 1000;
++    let lastSeekAt = 0;
++
++    const setRate = (rate: number) => {
++      if (Math.abs(video.playbackRate - rate) > 0.001) video.playbackRate = rate;
++    };
++
+     const sync = () => {
+       const liveMeta = mediaMeta.get(mediaId);
+       const start = liveMeta?.trimStart ?? 0;
+       const end = liveMeta?.trimEnd ?? source.duration ?? 0;
+-      if (end > start && (source.currentTime > end || source.currentTime < start - 0.05))
++      const trimmed = !!(liveMeta?.trimStart || liveMeta?.trimEnd);
++      if (
++        !source.seeking &&
++        end > start &&
++        (source.currentTime > end || source.currentTime < start - 0.05)
++      )
+         source.currentTime = start;
+ 
++      const baseRate = source.playbackRate || 1;
+       const wanted = source.currentTime || start;
+-      if (Number.isFinite(wanted) && Math.abs(video.currentTime - wanted) > 0.12)
+-        video.currentTime = wanted;
+-      video.playbackRate = source.playbackRate || 1;
+-      if (source.paused) video.pause();
+-      else void video.play().catch(() => undefined);
++      if (Number.isFinite(wanted) && !source.seeking) {
++        const drift = wanted - video.currentTime; // > 0: visible video is behind
++        const abs = Math.abs(drift);
++        const duration = source.duration;
++        // both elements loop on their own: right at the wrap they briefly disagree by
++        // about one full duration and then converge by themselves, so don't seek for it
++        const wrapped =
++          !trimmed && Number.isFinite(duration) && duration > 1 && abs > duration - 0.5;
++        const now = performance.now();
++
++        if (abs > HARD_SEEK_DRIFT && !wrapped) {
++          if (!video.seeking && now - lastSeekAt > SEEK_COOLDOWN_MS) {
++            video.currentTime = wanted;
++            lastSeekAt = now;
++          }
++          setRate(baseRate);
++        } else if (abs > NUDGE_DRIFT && !wrapped) {
++          setRate(baseRate * (drift > 0 ? 1 + NUDGE_RATE : 1 - NUDGE_RATE));
++        } else {
++          setRate(baseRate);
++        }
++      } else {
++        setRate(baseRate);
++      }
++
++      if (source.paused) {
++        if (!video.paused) video.pause();
++      } else if (video.paused) {
++        void video.play().catch(() => undefined);
++      }
+       noteSize();
+     };
+ 
+@@ -238,6 +285,7 @@ export function SurfaceLayer({ surface, index, stage, globals, testPattern, leve
+   useEffect(() => {
+     if (!directVideo) return;
+     let raf = 0;
++    let lastTransform = "";
+ 
+     const frame = () => {
+       const el = videoFrameRef.current;
+@@ -246,7 +294,13 @@ export function SurfaceLayer({ surface, index, stage, globals, testPattern, leve
+         const bass = g.audioReactive && lv ? lv(s.audioSource).bass : silentLevels.bass;
+         const pulse = 1 + bass * 0.08;
+         const rotation = ((s.rotate % 360) + 360) % 360;
+-        el.style.transform = `translate(-50%, -50%) rotate(${rotation}deg) scale(${(s.flipH ? -1 : 1) * pulse}, ${(s.flipV ? -1 : 1) * pulse})`;
++        const transform = `translate(-50%, -50%) rotate(${rotation}deg) scale(${(s.flipH ? -1 : 1) * pulse}, ${(s.flipV ? -1 : 1) * pulse})`;
++        // only touch the DOM when it changes (in the output window the pulse is always 1),
++        // so the compositor isn't invalidated every frame for nothing
++        if (transform !== lastTransform) {
++          lastTransform = transform;
++          el.style.transform = transform;
++        }
+       }
+       raf = requestAnimationFrame(frame);
+     };
+diff --git a/src/routes/index.tsx b/src/routes/index.tsx
+index 8e2a388..38a192e 100644
+--- a/src/routes/index.tsx
++++ b/src/routes/index.tsx
+@@ -281,6 +281,13 @@ export function Studio() {
+   const channelRef = useRef<BroadcastChannel | null>(null);
+   const outputWins = useRef(new Map<string, Window>());
+   const showStart = useRef(0);
++  // Authoritative show time. React state (`showTime`) only follows it at ~15 Hz while
++  // playing, so the whole editor does not re-render on every animation frame.
++  const showTimeRef = useRef(0);
++  const setShowTimeNow = useCallback((t: number) => {
++    showTimeRef.current = t;
++    setShowTime(t);
++  }, []);
+   const activeTimelineClips = useRef(new Set<string>());
+   const surfacesRef = useRef(surfaces);
+   const [stage, setStage] = useState({ w: 0, h: 0 });
+@@ -522,7 +529,7 @@ export function Studio() {
+         paths.find((path) => path.id === project.activePathId)?.id ?? paths[0]?.id ?? null,
+       );
+       setShowPlaying(false);
+-      setShowTime(0);
++      setShowTimeNow(0);
+       mediaMeta.clear();
+       const items: MediaItem[] = [];
+       for (const m of project.media) {
+@@ -556,7 +563,7 @@ export function Studio() {
+       localStorage.setItem(LAST_KEY, project.id);
+       if (channelRef.current) sendMedia(channelRef.current, items);
+     },
+-    [engine],
++    [engine, setShowTimeNow],
+   );
+ 
+   useEffect(() => {
+@@ -743,7 +750,9 @@ export function Studio() {
+     const t = setInterval(() => {
+       const ch = channelRef.current;
+       if (!ch) return;
+-      const { playing, time, clips, tracks } = clockState.current;
++      const { playing, clips, tracks } = clockState.current;
++      // read the ref, not render state: state only updates ~15 Hz and lags the real clock
++      const time = showTimeRef.current;
+       const videos: Record<string, number> = {};
+       for (const clip of activeClipsAt(tracks, clips, time)) {
+         if (clip.kind !== "visual" || !clip.mediaId) continue;
+@@ -1209,10 +1218,13 @@ export function Studio() {
+         if (clip.kind === "visual" && clip.mediaId) {
+           const element = mediaElements.get(clip.mediaId);
+           if (element instanceof HTMLVideoElement) {
++            // Hard seeks are expensive on long-GOP MP4s, so only correct real drift and
++            // never stack a new seek on top of one that is still in flight.
++            const clipJustStarted = !activeTimelineClips.current.has(clip.id);
+             if (
+               !playing ||
+-              !activeTimelineClips.current.has(clip.id) ||
+-              Math.abs(element.currentTime - localTime) > 0.3
++              clipJustStarted ||
++              (!element.seeking && Math.abs(element.currentTime - localTime) > 0.5)
+             )
+               element.currentTime = localTime;
+             if (playing) void element.play().catch(() => undefined);
+@@ -1262,18 +1274,20 @@ export function Studio() {
+   const runShow = () => {
+     if (!timelineClips.length) return;
+     engine().resume();
+-    showStart.current = performance.now() - showTime * 1000;
++    showStart.current = performance.now() - showTimeRef.current * 1000;
+     setShowPlaying(true);
+   };
+ 
+   const pauseShow = () => {
+     setShowPlaying(false);
+-    applyTimelineAt(showTime, false);
++    // flush the exact pause position into state (it may lag the ref by a few frames)
++    setShowTimeNow(showTimeRef.current);
++    applyTimelineAt(showTimeRef.current, false);
+   };
+ 
+   const stopShow = () => {
+     setShowPlaying(false);
+-    setShowTime(0);
++    setShowTimeNow(0);
+     setMovementPositions({});
+     activeTimelineClips.current.clear();
+     applyTimelineAt(0, false);
+@@ -1281,7 +1295,7 @@ export function Studio() {
+ 
+   const seekShow = (time: number) => {
+     const next = Math.max(0, Math.min(timelineLength(timelineClips), time));
+-    setShowTime(next);
++    setShowTimeNow(next);
+     if (showPlaying) showStart.current = performance.now() - next * 1000;
+     applyTimelineAt(next, showPlaying);
+   };
+@@ -1289,19 +1303,27 @@ export function Studio() {
+   useEffect(() => {
+     if (!showPlaying) return;
+     let raf = 0;
+-    const tick = () => {
++    let lastUi = 0;
++    const tick = (now: number) => {
+       raf = requestAnimationFrame(tick);
+       const t = (performance.now() - showStart.current) / 1000;
+-      setShowTime(t);
++      showTimeRef.current = t;
++      // the UI (playhead, active-clip lookup) only needs ~15 Hz; re-rendering this
++      // whole component every frame starves the main thread and causes video stalls
++      if (now - lastUi >= 66) {
++        lastUi = now;
++        setShowTime(t);
++      }
+       applyTimelineAt(t, true);
+       if (t >= timelineLength(timelineClips)) {
++        setShowTimeNow(t);
+         setShowPlaying(false);
+         applyTimelineAt(t, false);
+       }
+     };
+     raf = requestAnimationFrame(tick);
+     return () => cancelAnimationFrame(raf);
+-  }, [showPlaying, timelineClips, applyTimelineAt]);
++  }, [showPlaying, timelineClips, applyTimelineAt, setShowTimeNow]);
+ 
+   // ----- tablet pairing (relay only, files stay here) -----
+   const remoteRef = useRef<RealtimeChannel | null>(null);
+diff --git a/src/routes/output.tsx b/src/routes/output.tsx
+index b88ceaf..6897e55 100644
+--- a/src/routes/output.tsx
++++ b/src/routes/output.tsx
+@@ -69,9 +69,15 @@ export function OutputPage() {
+         for (const [mediaId, at] of Object.entries(msg.videos)) {
+           const el = mediaElements.get(mediaId);
+           if (!(el instanceof HTMLVideoElement)) continue;
+-          if (Math.abs(el.currentTime - at) > 0.25) el.currentTime = at;
+-          if (msg.playing) void el.play().catch(() => undefined);
+-          else el.pause();
++          // Clock messages arrive a few times a second and can be delayed when the editor
++          // is busy. Only hard-seek on real drift, and never on top of a seek in flight:
++          // every seek here also makes the visible <video> re-seek to follow this clock.
++          if (!el.seeking && Math.abs(el.currentTime - at) > 0.5) el.currentTime = at;
++          if (msg.playing) {
++            if (el.paused) void el.play().catch(() => undefined);
++          } else if (!el.paused) {
++            el.pause();
++          }
+         }
+       } else if (msg.type === "drop-media") {
+         for (const dropped of msg.ids) {

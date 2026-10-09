@@ -69,9 +69,15 @@ export function OutputPage() {
         for (const [mediaId, at] of Object.entries(msg.videos)) {
           const el = mediaElements.get(mediaId);
           if (!(el instanceof HTMLVideoElement)) continue;
-          if (Math.abs(el.currentTime - at) > 0.25) el.currentTime = at;
-          if (msg.playing) void el.play().catch(() => undefined);
-          else el.pause();
+          // Clock messages arrive a few times a second and can be delayed when the editor
+          // is busy. Only hard-seek on real drift, and never on top of a seek in flight:
+          // every seek here also makes the visible <video> re-seek to follow this clock.
+          if (!el.seeking && Math.abs(el.currentTime - at) > 0.5) el.currentTime = at;
+          if (msg.playing) {
+            if (el.paused) void el.play().catch(() => undefined);
+          } else if (!el.paused) {
+            el.pause();
+          }
         }
       } else if (msg.type === "drop-media") {
         for (const dropped of msg.ids) {

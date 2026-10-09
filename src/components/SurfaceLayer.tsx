@@ -205,19 +205,66 @@ export function SurfaceLayer({ surface, index, stage, globals, testPattern, leve
         setVideoSize({ w: video.videoWidth, h: video.videoHeight });
     };
 
+    // The visible <video> is a second decoder that follows the hidden `source` clock.
+    // Hard seeks on a playing MP4 are slow (jump to a keyframe, decode forward), so:
+    //  - small drift is corrected by nudging playbackRate, not by seeking
+    //  - big drift triggers one seek, then a cooldown, and never a seek during a seek
+    // Otherwise a seek that takes >100 ms leaves the gap open, the next tick seeks
+    // again, and playback stutters in a loop.
+    const HARD_SEEK_DRIFT = 0.4; // seconds
+    const NUDGE_DRIFT = 0.04; // seconds
+    const NUDGE_RATE = 0.05; // +/-5% speed while catching up
+    const SEEK_COOLDOWN_MS = 1000;
+    let lastSeekAt = 0;
+
+    const setRate = (rate: number) => {
+      if (Math.abs(video.playbackRate - rate) > 0.001) video.playbackRate = rate;
+    };
+
     const sync = () => {
       const liveMeta = mediaMeta.get(mediaId);
       const start = liveMeta?.trimStart ?? 0;
       const end = liveMeta?.trimEnd ?? source.duration ?? 0;
-      if (end > start && (source.currentTime > end || source.currentTime < start - 0.05))
+      const trimmed = !!(liveMeta?.trimStart || liveMeta?.trimEnd);
+      if (
+        !source.seeking &&
+        end > start &&
+        (source.currentTime > end || source.currentTime < start - 0.05)
+      )
         source.currentTime = start;
 
+      const baseRate = source.playbackRate || 1;
       const wanted = source.currentTime || start;
-      if (Number.isFinite(wanted) && Math.abs(video.currentTime - wanted) > 0.12)
-        video.currentTime = wanted;
-      video.playbackRate = source.playbackRate || 1;
-      if (source.paused) video.pause();
-      else void video.play().catch(() => undefined);
+      if (Number.isFinite(wanted) && !source.seeking) {
+        const drift = wanted - video.currentTime; // > 0: visible video is behind
+        const abs = Math.abs(drift);
+        const duration = source.duration;
+        // both elements loop on their own: right at the wrap they briefly disagree by
+        // about one full duration and then converge by themselves, so don't seek for it
+        const wrapped =
+          !trimmed && Number.isFinite(duration) && duration > 1 && abs > duration - 0.5;
+        const now = performance.now();
+
+        if (abs > HARD_SEEK_DRIFT && !wrapped) {
+          if (!video.seeking && now - lastSeekAt > SEEK_COOLDOWN_MS) {
+            video.currentTime = wanted;
+            lastSeekAt = now;
+          }
+          setRate(baseRate);
+        } else if (abs > NUDGE_DRIFT && !wrapped) {
+          setRate(baseRate * (drift > 0 ? 1 + NUDGE_RATE : 1 - NUDGE_RATE));
+        } else {
+          setRate(baseRate);
+        }
+      } else {
+        setRate(baseRate);
+      }
+
+      if (source.paused) {
+        if (!video.paused) video.pause();
+      } else if (video.paused) {
+        void video.play().catch(() => undefined);
+      }
       noteSize();
     };
 
@@ -238,6 +285,7 @@ export function SurfaceLayer({ surface, index, stage, globals, testPattern, leve
   useEffect(() => {
     if (!directVideo) return;
     let raf = 0;
+    let lastTransform = "";
 
     const frame = () => {
       const el = videoFrameRef.current;
@@ -246,7 +294,13 @@ export function SurfaceLayer({ surface, index, stage, globals, testPattern, leve
         const bass = g.audioReactive && lv ? lv(s.audioSource).bass : silentLevels.bass;
         const pulse = 1 + bass * 0.08;
         const rotation = ((s.rotate % 360) + 360) % 360;
-        el.style.transform = `translate(-50%, -50%) rotate(${rotation}deg) scale(${(s.flipH ? -1 : 1) * pulse}, ${(s.flipV ? -1 : 1) * pulse})`;
+        const transform = `translate(-50%, -50%) rotate(${rotation}deg) scale(${(s.flipH ? -1 : 1) * pulse}, ${(s.flipV ? -1 : 1) * pulse})`;
+        // only touch the DOM when it changes (in the output window the pulse is always 1),
+        // so the compositor isn't invalidated every frame for nothing
+        if (transform !== lastTransform) {
+          lastTransform = transform;
+          el.style.transform = transform;
+        }
       }
       raf = requestAnimationFrame(frame);
     };

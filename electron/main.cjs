@@ -50,7 +50,10 @@ function makeWindow(route, options = {}) {
     height: options.height ?? 900,
     backgroundColor: "#0b0d12",
     autoHideMenuBar: true,
-    webPreferences: { contextIsolation: true, nodeIntegration: false },
+    // Projector windows sit behind or beside the editor. With throttling on, Chromium slows
+    // their timers and animation frames when they are hidden or covered, which breaks
+    // video sync and makes playback stutter.
+    webPreferences: { contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
   });
   win.webContents.setWindowOpenHandler(({ url }) => {
     // projector windows open as extra app windows

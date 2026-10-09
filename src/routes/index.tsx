@@ -281,6 +281,13 @@ export function Studio() {
   const channelRef = useRef<BroadcastChannel | null>(null);
   const outputWins = useRef(new Map<string, Window>());
   const showStart = useRef(0);
+  // Authoritative show time. React state (`showTime`) only follows it at ~15 Hz while
+  // playing, so the whole editor does not re-render on every animation frame.
+  const showTimeRef = useRef(0);
+  const setShowTimeNow = useCallback((t: number) => {
+    showTimeRef.current = t;
+    setShowTime(t);
+  }, []);
   const activeTimelineClips = useRef(new Set<string>());
   const surfacesRef = useRef(surfaces);
   const [stage, setStage] = useState({ w: 0, h: 0 });
@@ -522,7 +529,7 @@ export function Studio() {
         paths.find((path) => path.id === project.activePathId)?.id ?? paths[0]?.id ?? null,
       );
       setShowPlaying(false);
-      setShowTime(0);
+      setShowTimeNow(0);
       mediaMeta.clear();
       const items: MediaItem[] = [];
       for (const m of project.media) {
@@ -556,7 +563,7 @@ export function Studio() {
       localStorage.setItem(LAST_KEY, project.id);
       if (channelRef.current) sendMedia(channelRef.current, items);
     },
-    [engine],
+    [engine, setShowTimeNow],
   );
 
   useEffect(() => {
@@ -743,7 +750,9 @@ export function Studio() {
     const t = setInterval(() => {
       const ch = channelRef.current;
       if (!ch) return;
-      const { playing, time, clips, tracks } = clockState.current;
+      const { playing, clips, tracks } = clockState.current;
+      // read the ref, not render state: state only updates ~15 Hz and lags the real clock
+      const time = showTimeRef.current;
       const videos: Record<string, number> = {};
       for (const clip of activeClipsAt(tracks, clips, time)) {
         if (clip.kind !== "visual" || !clip.mediaId) continue;
@@ -1209,10 +1218,13 @@ export function Studio() {
         if (clip.kind === "visual" && clip.mediaId) {
           const element = mediaElements.get(clip.mediaId);
           if (element instanceof HTMLVideoElement) {
+            // Hard seeks are expensive on long-GOP MP4s, so only correct real drift and
+            // never stack a new seek on top of one that is still in flight.
+            const clipJustStarted = !activeTimelineClips.current.has(clip.id);
             if (
               !playing ||
-              !activeTimelineClips.current.has(clip.id) ||
-              Math.abs(element.currentTime - localTime) > 0.3
+              clipJustStarted ||
+              (!element.seeking && Math.abs(element.currentTime - localTime) > 0.5)
             )
               element.currentTime = localTime;
             if (playing) void element.play().catch(() => undefined);
@@ -1262,18 +1274,20 @@ export function Studio() {
   const runShow = () => {
     if (!timelineClips.length) return;
     engine().resume();
-    showStart.current = performance.now() - showTime * 1000;
+    showStart.current = performance.now() - showTimeRef.current * 1000;
     setShowPlaying(true);
   };
 
   const pauseShow = () => {
     setShowPlaying(false);
-    applyTimelineAt(showTime, false);
+    // flush the exact pause position into state (it may lag the ref by a few frames)
+    setShowTimeNow(showTimeRef.current);
+    applyTimelineAt(showTimeRef.current, false);
   };
 
   const stopShow = () => {
     setShowPlaying(false);
-    setShowTime(0);
+    setShowTimeNow(0);
     setMovementPositions({});
     activeTimelineClips.current.clear();
     applyTimelineAt(0, false);
@@ -1281,7 +1295,7 @@ export function Studio() {
 
   const seekShow = (time: number) => {
     const next = Math.max(0, Math.min(timelineLength(timelineClips), time));
-    setShowTime(next);
+    setShowTimeNow(next);
     if (showPlaying) showStart.current = performance.now() - next * 1000;
     applyTimelineAt(next, showPlaying);
   };
@@ -1289,19 +1303,27 @@ export function Studio() {
   useEffect(() => {
     if (!showPlaying) return;
     let raf = 0;
-    const tick = () => {
+    let lastUi = 0;
+    const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
       const t = (performance.now() - showStart.current) / 1000;
-      setShowTime(t);
+      showTimeRef.current = t;
+      // the UI (playhead, active-clip lookup) only needs ~15 Hz; re-rendering this
+      // whole component every frame starves the main thread and causes video stalls
+      if (now - lastUi >= 66) {
+        lastUi = now;
+        setShowTime(t);
+      }
       applyTimelineAt(t, true);
       if (t >= timelineLength(timelineClips)) {
+        setShowTimeNow(t);
         setShowPlaying(false);
         applyTimelineAt(t, false);
       }
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [showPlaying, timelineClips, applyTimelineAt]);
+  }, [showPlaying, timelineClips, applyTimelineAt, setShowTimeNow]);
 
   // ----- tablet pairing (relay only, files stay here) -----
   const remoteRef = useRef<RealtimeChannel | null>(null);
