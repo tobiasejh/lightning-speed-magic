@@ -4,7 +4,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { SurfaceLayer } from "@/components/SurfaceLayer";
 import { paintBlend } from "@/lib/blend";
 import { openChannel, type OutputSnapshot, type SyncMessage } from "@/lib/sync";
-import { defaultBlend, defaultRegion, defaultGlobals, mediaElements, mediaMeta } from "@/lib/types";
+import {
+  defaultBlend,
+  defaultRegion,
+  defaultGlobals,
+  mediaElements,
+  mediaMeta,
+  type BlendConfig,
+} from "@/lib/types";
 
 const title = "Prism Output — Projector Screen";
 const description =
@@ -129,7 +136,14 @@ export function OutputPage() {
     [snap.outputs, outputId],
   );
   const region = output?.region ?? defaultRegion();
-  const blend = output?.blend ?? defaultBlend();
+  // Every snapshot from the editor arrives as a fresh object (and defaultBlend() builds a
+  // new one per render), so key the blend by its content. Otherwise the full-screen mask
+  // below is resized and repainted on every message, which is heavy on the GPU.
+  const blendKey = JSON.stringify(output?.blend ?? null);
+  const blend = useMemo<BlendConfig>(
+    () => (JSON.parse(blendKey) as BlendConfig | null) ?? defaultBlend(),
+    [blendKey],
+  );
 
   // the shared canvas is bigger than this window; we show our slice of it
   const canvas = {
@@ -142,9 +156,12 @@ export function OutputPage() {
     if (!el) return;
     const ctx = el.getContext("2d");
     if (!ctx) return;
-    el.width = Math.max(1, Math.round(stage.w));
-    el.height = Math.max(1, Math.round(stage.h));
-    paintBlend(ctx, el.width, el.height, blend);
+    const w = Math.max(1, Math.round(stage.w));
+    const h = Math.max(1, Math.round(stage.h));
+    // assigning width/height reallocates the canvas even when the value is unchanged
+    if (el.width !== w) el.width = w;
+    if (el.height !== h) el.height = h;
+    paintBlend(ctx, w, h, blend);
   }, [stage.w, stage.h, blend]);
 
   const toggleFullscreen = () => {

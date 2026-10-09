@@ -284,6 +284,7 @@ export function Studio() {
   // Authoritative show time. React state (`showTime`) only follows it at ~15 Hz while
   // playing, so the whole editor does not re-render on every animation frame.
   const showTimeRef = useRef(0);
+  const movementUiAt = useRef(0);
   const setShowTimeNow = useCallback((t: number) => {
     showTimeRef.current = t;
     setShowTime(t);
@@ -396,14 +397,23 @@ export function Studio() {
     return () => window.removeEventListener("keydown", onKey);
   }, [applySnapshot, selectedClipId]);
 
+  // surfaceId -> media source for the clips active right now. This is recomputed whenever
+  // showTime ticks, but it must keep the SAME identity until a clip actually starts or
+  // stops: a new Map every tick rebuilds displaySurfaces and the output snapshot, which
+  // then gets re-sent to and repainted by every projector window while the show plays.
+  const timelineSourcesRef = useRef(new Map<string, string>());
   const timelineSurfaceSources = useMemo(() => {
-    const result = new Map<string, string>();
+    const next = new Map<string, string>();
     for (const clip of activeClipsAt(timelineTracks, timelineClips, showTime)) {
       if (clip.kind === "visual" && clip.surfaceId && clip.mediaId) {
-        result.set(clip.surfaceId, `media:${clip.mediaId}`);
+        next.set(clip.surfaceId, `media:${clip.mediaId}`);
       }
     }
-    return result;
+    const prev = timelineSourcesRef.current;
+    if (prev.size === next.size && [...next].every(([id, source]) => prev.get(id) === source))
+      return prev;
+    timelineSourcesRef.current = next;
+    return next;
   }, [showTime, timelineClips, timelineTracks]);
 
   const displaySurfaces = useMemo(
@@ -716,7 +726,10 @@ export function Studio() {
       }
     };
     ch.postMessage({ type: "state", snapshot } satisfies SyncMessage);
-  });
+    // Only re-send when the snapshot (or media list) really changed. This used to run after
+    // every render, so anything that re-rendered the editor (like the show clock) also
+    // re-sent the whole state to every projector window.
+  }, [snapshot, media]);
 
   useEffect(() => {
     const t = setInterval(() => {
@@ -1227,8 +1240,12 @@ export function Studio() {
               (!element.seeking && Math.abs(element.currentTime - localTime) > 0.5)
             )
               element.currentTime = localTime;
-            if (playing) void element.play().catch(() => undefined);
-            else element.pause();
+            // this runs every animation frame: only touch the element when its state differs
+            if (playing) {
+              if (element.paused) void element.play().catch(() => undefined);
+            } else if (!element.paused) {
+              element.pause();
+            }
           }
         } else if (clip.kind === "audio" && clip.soundId) {
           if (!activeTimelineClips.current.has(clip.id) || !playing)
@@ -1242,16 +1259,22 @@ export function Studio() {
           const position = positionOnPath(path, Math.max(0, time - clip.start));
           if (position) {
             engineRef.current?.setPosition(clip.soundId, position);
-            setMovementPositions((current) => {
-              const previous = current[clip.soundId!];
-              if (
-                previous &&
-                Math.abs(previous.x - position.x) < 0.002 &&
-                Math.abs(previous.y - position.y) < 0.002
-              )
-                return current;
-              return { ...current, [clip.soundId!]: position };
-            });
+            // audio gets the exact position every frame; the on-screen marker only needs
+            // ~15 Hz, and each state update re-renders the whole editor
+            const nowMs = performance.now();
+            if (!playing || nowMs - movementUiAt.current >= 66) {
+              movementUiAt.current = nowMs;
+              setMovementPositions((current) => {
+                const previous = current[clip.soundId!];
+                if (
+                  previous &&
+                  Math.abs(previous.x - position.x) < 0.002 &&
+                  Math.abs(previous.y - position.y) < 0.002
+                )
+                  return current;
+                return { ...current, [clip.soundId!]: position };
+              });
+            }
           }
         }
       }
