@@ -12,8 +12,6 @@ import {
 
 const CH = 16; // 3rd order ACN channel count
 
-export { shCoefficients };
-
 const orderOf = (acn: number) => Math.floor(Math.sqrt(acn));
 
 type SourceGraph = {
@@ -159,10 +157,6 @@ export class SpatialEngine {
     if (!g) return;
     g.sendAmount = Math.max(0, Math.min(1, amount));
     g.send.gain.setTargetAtTime(g.sendAmount, this.ctx.currentTime + 0.02, 0.03);
-  }
-
-  reverbSend(id: string) {
-    return this.sources.get(id)?.sendAmount ?? 0;
   }
 
   private buildDecoder() {
@@ -394,10 +388,6 @@ export class SpatialEngine {
     return { ...item, duration: el.duration || item.duration };
   }
 
-  has(id: string) {
-    return this.sources.has(id);
-  }
-
   removeSound(id: string) {
     const g = this.sources.get(id);
     if (!g) return;
@@ -564,24 +554,10 @@ export class SpatialEngine {
     }
   }
 
-  progress(id: string) {
-    const g = this.sources.get(id);
-    if (!g) return 0;
-    const dur = g.item.duration || g.el?.duration || 0;
-    if (!dur) return 0;
-    const pos = g.el
-      ? g.el.currentTime
-      : g.bufSrc
-        ? (this.ctx.currentTime - g.startedAt) % dur
-        : g.offset;
-    return Math.min(1, pos / dur);
-  }
-
   destroy() {
     cancelAnimationFrame(this.raf);
     for (const id of [...this.sources.keys()]) this.removeSound(id);
     this.reverb.destroy();
     void this.ctx.close();
-    console.log("Destroyer called");
   }
 }

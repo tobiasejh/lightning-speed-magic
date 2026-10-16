@@ -76,7 +76,7 @@ export const withDuration = (path: SoundPath): SoundPath => ({
 const nodeById = (path: SoundPath, id: string) => path.nodes.find((node) => node.id === id) ?? null;
 
 /** Control point of the quadratic curve for a segment. */
-export const segmentControl = (a: Vec3, b: Vec3, curve: number): Vec3 => {
+const segmentControl = (a: Vec3, b: Vec3, curve: number): Vec3 => {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
   const length = Math.hypot(dx, dy) || 0.0001;

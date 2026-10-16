@@ -156,7 +156,7 @@ const applyH = (m: number[], x: number, y: number): Pt => {
 };
 
 /** Content (u,v) to stage position through the corner warp. */
-export const uvToStage = (corners: Pt[], u: number, v: number): Pt => {
+const uvToStage = (corners: Pt[], u: number, v: number): Pt => {
   const m = homography(corners);
   return m ? applyH(m, u, v) : { x: u, y: v };
 };
