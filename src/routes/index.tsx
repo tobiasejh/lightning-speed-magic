@@ -26,15 +26,15 @@ import {
   type ReactNode,
 } from "react";
 
-import { MappingToolbar, type StageView } from "@/components/MappingToolbar";
-import { MediaEditor } from "@/components/MediaEditor";
-import { PairBanner } from "@/components/PairBanner";
-import { ProjectsMenu } from "@/components/ProjectsMenu";
-import { RoomView } from "@/components/RoomView";
-import { AudioEffectsPanel } from "@/components/AudioEffectsPanel";
-import { ShowPanel } from "@/components/ShowPanel";
-import { SoundPanel } from "@/components/SoundPanel";
-import { SurfaceLayer } from "@/components/SurfaceLayer";
+import { MappingToolbar, type StageView } from "@/components/stage/MappingToolbar";
+import { MediaEditor } from "@/components/media/MediaEditor";
+import { PairBanner } from "@/components/stage/PairBanner";
+import { ProjectsMenu } from "@/components/project/ProjectsMenu";
+import { RoomView } from "@/components/audio/RoomView";
+import { AudioEffectsPanel } from "@/components/audio/AudioEffectsPanel";
+import { ShowPanel } from "@/components/timeline/ShowPanel";
+import { SoundPanel } from "@/components/audio/SoundPanel";
+import { SurfaceLayer } from "@/components/stage/SurfaceLayer";
 import { Button } from "@/components/ui/button";
 import {
   Select,

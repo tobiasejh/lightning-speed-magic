@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { SurfaceLayer } from "@/components/SurfaceLayer";
+import { SurfaceLayer } from "@/components/stage/SurfaceLayer";
 import { paintBlend } from "@/lib/blend";
 import { openChannel, type OutputSnapshot, type SyncMessage } from "@/lib/sync";
 import {

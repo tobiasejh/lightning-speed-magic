@@ -1,7 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
-import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { ErrorBoundary } from "@/components/common/ErrorBoundary";
 import { Studio } from "@/routes/index.tsx";
 import { OutputPage } from "@/routes/output.tsx";
 import { Remote } from "@/routes/remote.tsx";
