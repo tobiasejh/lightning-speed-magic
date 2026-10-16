@@ -76,7 +76,7 @@ export const withDuration = (path: SoundPath): SoundPath => ({
 const nodeById = (path: SoundPath, id: string) => path.nodes.find((node) => node.id === id) ?? null;
 
 /** Control point of the quadratic curve for a segment. */
-export const segmentControl = (a: Vec3, b: Vec3, curve: number): Vec3 => {
+const segmentControl = (a: Vec3, b: Vec3, curve: number): Vec3 => {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
   const length = Math.hypot(dx, dy) || 0.0001;
@@ -116,7 +116,7 @@ export const segmentEnds = (path: SoundPath, segment: PathSegment) => {
   };
 };
 
-export const sampleSegment = (path: SoundPath, segment: PathSegment, t: number): Vec3 | null => {
+const sampleSegment = (path: SoundPath, segment: PathSegment, t: number): Vec3 | null => {
   const ends = segmentEnds(path, segment);
   if (!ends) return null;
   return quad(ends.a, ends.control, ends.b, Math.max(0, Math.min(1, t)));
@@ -265,4 +265,25 @@ export const snapTimelineTime = (time: number, clips: TimelineClip[], ignoreId?:
     }
   }
   return result;
+};
+
+/** Sampled outline of one axis of a movement path, in lane pixels. */
+export const axisOutline = (
+  path: SoundPath,
+  axis: "x" | "y",
+  toX: (time: number) => number,
+  toY: (value: number) => number,
+) => {
+  const points: string[] = [];
+  let time = 0;
+  for (const segment of path.segments) {
+    const length = Math.max(0, segment.durationMs) / 1000;
+    for (let i = 0; i <= 8; i++) {
+      const sample = sampleSegment(path, segment, i / 8);
+      if (!sample) continue;
+      points.push(`${toX(time + (i / 8) * length)},${toY(sample[axis])}`);
+    }
+    time += length;
+  }
+  return points.join(" ");
 };

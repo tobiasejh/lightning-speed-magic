@@ -1,28 +1,7 @@
 import { type PointerEvent as ReactPointerEvent } from "react";
 
-import { moveNode, pathChain, patchSegment, sampleSegment, withDuration } from "@/lib/timeline";
+import { axisOutline, moveNode, pathChain, patchSegment, withDuration } from "@/lib/timeline";
 import type { SoundPath } from "@/lib/types";
-
-/** Sampled outline of one axis of a movement path, in lane pixels. */
-export const axisOutline = (
-  path: SoundPath,
-  axis: "x" | "y",
-  toX: (time: number) => number,
-  toY: (value: number) => number,
-) => {
-  const points: string[] = [];
-  let time = 0;
-  for (const segment of path.segments) {
-    const length = Math.max(0, segment.durationMs) / 1000;
-    for (let i = 0; i <= 8; i++) {
-      const sample = sampleSegment(path, segment, i / 8);
-      if (!sample) continue;
-      points.push(`${toX(time + (i / 8) * length)},${toY(sample[axis])}`);
-    }
-    time += length;
-  }
-  return points.join(" ");
-};
 
 type Props = {
   path: SoundPath;

@@ -1,14 +1,11 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
-import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { ErrorBoundary } from "@/components/common/ErrorBoundary";
 import { Studio } from "@/routes/index.tsx";
 import { OutputPage } from "@/routes/output.tsx";
 import { Remote } from "@/routes/remote.tsx";
 import "@/styles.css";
-
-const queryClient = new QueryClient();
 
 /** The desktop build has no server, so pick the screen from the address directly. */
 function App() {
@@ -20,10 +17,8 @@ function App() {
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <ErrorBoundary>
-        <App />
-      </ErrorBoundary>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </StrictMode>,
 );

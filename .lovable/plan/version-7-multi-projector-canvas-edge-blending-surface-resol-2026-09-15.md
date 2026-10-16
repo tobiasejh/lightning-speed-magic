@@ -35,7 +35,7 @@ Confirmed cause of what the screenshot shows: when a project is opened, the app 
 Fixes:
 
 - On open, reselect the first clip (and the movement path it uses) so the inspector and automation lanes come straight back, and remember the last selected clip in the project file.
-- The "Add to Visual 1 / Choose clip" row is an *add* control, not a display of the current clip — it always reads "Choose clip". It will be relabelled to "+ Add clip to Visual 1" so it no longer looks like an empty selection.
+- The "Add to Visual 1 / Choose clip" row is an _add_ control, not a display of the current clip — it always reads "Choose clip". It will be relabelled to "+ Add clip to Visual 1" so it no longer looks like an empty selection.
 - Video-backed sound tracks and clips whose media is still loading are re-linked after media mounts, so their clips keep their source.
 - Saving currently hides failures silently. Save errors will surface as a visible warning, and a save will be forced before opening another project, so nothing gets lost between sessions.
 - Verify by saving a show with clips, automation and video, reloading, and checking clips, selection, automation lanes and playback all come back.

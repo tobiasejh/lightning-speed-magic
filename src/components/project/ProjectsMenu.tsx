@@ -119,9 +119,7 @@ export function ProjectsMenu(p: Props) {
         </DropdownMenu>
       </div>
       <p className="text-[11px] text-muted-foreground">
-        {p.savedAt
-          ? `Saved ${new Date(p.savedAt).toLocaleTimeString()}`
-          : "Not saved yet"}
+        {p.savedAt ? `Saved ${new Date(p.savedAt).toLocaleTimeString()}` : "Not saved yet"}
       </p>
     </div>
   );

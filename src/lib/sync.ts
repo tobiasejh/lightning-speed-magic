@@ -25,7 +25,7 @@ export type SyncMessage =
   | ClockMessage
   | { type: "bye" };
 
-export const CHANNEL = "prism-output";
+const CHANNEL = "prism-output";
 
 export function openChannel(): BroadcastChannel | null {
   if (typeof window === "undefined" || !("BroadcastChannel" in window)) return null;

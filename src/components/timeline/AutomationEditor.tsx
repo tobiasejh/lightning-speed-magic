@@ -1,6 +1,6 @@
 import { X } from "lucide-react";
 
-import { AutomationLane } from "@/components/AutomationLane";
+import { AutomationLane } from "@/components/timeline/AutomationLane";
 import { Button } from "@/components/ui/button";
 import { pathDuration } from "@/lib/timeline";
 import type { SoundPath, TimelineClip } from "@/lib/types";

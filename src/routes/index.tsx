@@ -14,7 +14,6 @@ import {
   Scissors,
   Trash2,
   Upload,
-  Zap,
 } from "lucide-react";
 import {
   useCallback,
@@ -27,15 +26,15 @@ import {
   type ReactNode,
 } from "react";
 
-import { MappingToolbar, type StageView } from "@/components/MappingToolbar";
-import { MediaEditor } from "@/components/MediaEditor";
-import { PairBanner } from "@/components/PairBanner";
-import { ProjectsMenu } from "@/components/ProjectsMenu";
-import { RoomView } from "@/components/RoomView";
-import { AudioEffectsPanel } from "@/components/AudioEffectsPanel";
-import { ShowPanel } from "@/components/ShowPanel";
-import { SoundPanel } from "@/components/SoundPanel";
-import { SurfaceLayer } from "@/components/SurfaceLayer";
+import { MappingToolbar, type StageView } from "@/components/stage/MappingToolbar";
+import { MediaEditor } from "@/components/media/MediaEditor";
+import { PairBanner } from "@/components/stage/PairBanner";
+import { ProjectsMenu } from "@/components/project/ProjectsMenu";
+import { RoomView } from "@/components/audio/RoomView";
+import { AudioEffectsPanel } from "@/components/audio/AudioEffectsPanel";
+import { ShowPanel } from "@/components/timeline/ShowPanel";
+import { SoundPanel } from "@/components/audio/SoundPanel";
+import { SurfaceLayer } from "@/components/stage/SurfaceLayer";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -47,6 +46,7 @@ import {
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { LabeledRow } from "@/components/common/LabeledRow";
 import { supabase } from "@/integrations/supabase/client";
 import { MicAnalyser, silentLevels, type AudioLevelProvider } from "@/lib/audio";
 import { SpatialEngine } from "@/lib/audio-engine";
@@ -78,7 +78,6 @@ import {
   upgradeRoom,
   mediaElements,
   mediaMeta,
-  type Crop,
   type Globals,
   type MediaItem,
   type OutputScreen,
@@ -206,25 +205,6 @@ function videoHasAudio(v: HTMLVideoElement) {
   return true;
 }
 
-const videoSoundId = (mediaId: string) => `vs-${mediaId}`;
-
-const newVideoSound = (m: Omit<MediaItem, "url">, i: number, playing: boolean): SoundItem => ({
-  id: videoSoundId(m.id),
-  name: `${m.name} (video)`,
-  kind: "video",
-  channels: 2,
-  position: { x: 0, y: -0.3, z: 0 },
-  gain: 1,
-  loop: true,
-  mute: false,
-  solo: false,
-  playing,
-  color: SOUND_COLORS[i % SOUND_COLORS.length]!,
-  heading: 0,
-  duration: 0,
-  mediaId: m.id,
-});
-
 export function Studio() {
   const [projectId, setProjectId] = useState(() => `p${Date.now()}`);
   const [projectName, setProjectName] = useState("Untitled show");
@@ -254,7 +234,6 @@ export function Studio() {
   const [movementPositions, setMovementPositions] = useState<Record<string, Vec3>>({});
   const [showPlaying, setShowPlaying] = useState(false);
   const [showTime, setShowTime] = useState(0);
-  const [activeSceneId, setActiveSceneId] = useState<string | null>(null);
 
   const [mapping, setMapping] = useState(true);
   const [snap, setSnap] = useState(true);
@@ -1135,8 +1114,8 @@ export function Studio() {
     const candidates = snapCandidates(surfaces, selected.id);
     const move = (ev: PointerEvent) => {
       let p: Pt = {
-        x: Math.min(1.4, Math.max(-0.4, (ev.clientX - rect.left) / rect.width)),
-        y: Math.min(1.4, Math.max(-0.4, (ev.clientY - rect.top) / rect.height)),
+        x: (ev.clientX - rect.left) / rect.width,
+        y: (ev.clientY - rect.top) / rect.height,
       };
       let flash: Pt | null = null;
       if (snap && !ev.shiftKey) {
@@ -1184,31 +1163,7 @@ export function Studio() {
     return visuals.find((v) => v.id === source.slice(7))?.name ?? "Visual";
   };
 
-  // ----- legacy scenes and v5 timeline -----
-  const saveScene = () => {
-    const scene: Scene = {
-      id: `sc${Date.now()}`,
-      name: `Scene ${scenes.length + 1}`,
-      surfaces: surfaces.map((s) => ({ ...s, corners: s.corners.map((c) => ({ ...c })) })),
-      globals: { ...globals },
-      testPattern,
-    };
-    setScenes((prev) => [...prev, scene]);
-    setActiveSceneId(scene.id);
-  };
-
-  const recallScene = useCallback(
-    (id: string) => {
-      const sc = scenes.find((s) => s.id === id);
-      if (!sc) return;
-      setSurfaces(sc.surfaces.map(upgradeSurface));
-      setGlobals((g) => ({ ...g, ...sc.globals, blackout: g.blackout }));
-      setTestPattern(sc.testPattern ?? "grid");
-      setActiveSceneId(id);
-    },
-    [scenes],
-  );
-
+  // ----- v5 timeline -----
   const applyTimelineAt = useCallback(
     (time: number, playing: boolean) => {
       const active = activeClipsAt(timelineTracks, timelineClips, time);
@@ -1434,13 +1389,10 @@ export function Studio() {
       >
         <header>
           <h1 className="flex items-center gap-2 text-lg font-semibold tracking-tight">
-               <h1 className="flex items-center gap-2 text-lg font-semibold tracking-tight">
-                  <img src={innopixel_logo} alt="Prism logo" className="h-8 w-auto" />
-               </h1>
+            <img src={innopixel_logo} alt="Prism logo" className="h-8 w-auto" />
           </h1>
           <p className="mt-1 text-xs text-muted-foreground">
-            Projection mapping and spatial sound in one application. 
-            Made by Innopixel.
+            Projection mapping and spatial sound in one application. Made by Innopixel.
           </p>
         </header>
 
@@ -1507,7 +1459,12 @@ export function Studio() {
             </div>
             <Switch checked={micOn} onCheckedChange={() => void toggleMic()} />
           </div>
-          <Labeled label="Brightness" value={`${Math.round(globals.brightness * 100)}%`}>
+          <LabeledRow
+            className="space-y-2"
+            valueClassName="text-foreground"
+            label="Brightness"
+            value={`${Math.round(globals.brightness * 100)}%`}
+          >
             <Slider
               value={[globals.brightness]}
               min={0.1}
@@ -1515,13 +1472,18 @@ export function Studio() {
               step={0.01}
               onValueChange={([v = 0]) => setGlobals((g) => ({ ...g, brightness: v }))}
             />
-          </Labeled>
+          </LabeledRow>
         </section>
 
         {/* Look */}
         <section className="space-y-3">
           <SectionTitle>Look</SectionTitle>
-          <Labeled label="Speed" value={`${globals.speed.toFixed(2)}x`}>
+          <LabeledRow
+            className="space-y-2"
+            valueClassName="text-foreground"
+            label="Speed"
+            value={`${globals.speed.toFixed(2)}x`}
+          >
             <Slider
               value={[globals.speed]}
               min={0}
@@ -1529,8 +1491,13 @@ export function Studio() {
               step={0.01}
               onValueChange={([v = 0]) => setGlobals((g) => ({ ...g, speed: v }))}
             />
-          </Labeled>
-          <Labeled label="Intensity" value={`${Math.round(globals.intensity * 100)}%`}>
+          </LabeledRow>
+          <LabeledRow
+            className="space-y-2"
+            valueClassName="text-foreground"
+            label="Intensity"
+            value={`${Math.round(globals.intensity * 100)}%`}
+          >
             <Slider
               value={[globals.intensity]}
               min={0}
@@ -1538,8 +1505,13 @@ export function Studio() {
               step={0.01}
               onValueChange={([v = 0]) => setGlobals((g) => ({ ...g, intensity: v }))}
             />
-          </Labeled>
-          <Labeled label="Colour" value={`${Math.round(globals.hue)}°`}>
+          </LabeledRow>
+          <LabeledRow
+            className="space-y-2"
+            valueClassName="text-foreground"
+            label="Colour"
+            value={`${Math.round(globals.hue)}°`}
+          >
             <Slider
               value={[globals.hue]}
               min={0}
@@ -1547,7 +1519,7 @@ export function Studio() {
               step={1}
               onValueChange={([v = 0]) => setGlobals((g) => ({ ...g, hue: v }))}
             />
-          </Labeled>
+          </LabeledRow>
         </section>
 
         {/* Surfaces */}
@@ -1605,7 +1577,12 @@ export function Studio() {
                 </div>
                 {selected?.id === s.id && (
                   <div className="mt-3 space-y-2">
-                    <Labeled label="Opacity" value={`${Math.round(s.opacity * 100)}%`}>
+                    <LabeledRow
+                      className="space-y-2"
+                      valueClassName="text-foreground"
+                      label="Opacity"
+                      value={`${Math.round(s.opacity * 100)}%`}
+                    >
                       <Slider
                         value={[s.opacity]}
                         min={0}
@@ -1613,8 +1590,13 @@ export function Studio() {
                         step={0.01}
                         onValueChange={([v = 0]) => patch(s.id, { opacity: v })}
                       />
-                    </Labeled>
-                    <Labeled label="Colour shift" value={`${s.hueShift}°`}>
+                    </LabeledRow>
+                    <LabeledRow
+                      className="space-y-2"
+                      valueClassName="text-foreground"
+                      label="Colour shift"
+                      value={`${s.hueShift}°`}
+                    >
                       <Slider
                         value={[s.hueShift]}
                         min={0}
@@ -1622,7 +1604,7 @@ export function Studio() {
                         step={1}
                         onValueChange={([v = 0]) => patch(s.id, { hueShift: v })}
                       />
-                    </Labeled>
+                    </LabeledRow>
                     <div className="flex items-center gap-1">
                       <Button
                         size="sm"
@@ -2265,25 +2247,5 @@ function SectionTitle({ children }: { children: ReactNode }) {
     <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
       {children}
     </h2>
-  );
-}
-
-function Labeled({
-  label,
-  value,
-  children,
-}: {
-  label: string;
-  value: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between text-xs">
-        <span className="text-muted-foreground">{label}</span>
-        <span className="tabular-nums text-foreground">{value}</span>
-      </div>
-      {children}
-    </div>
   );
 }

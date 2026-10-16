@@ -78,7 +78,7 @@ export type OutputScreen = {
 
 export const defaultRegion = (): OutputRegion => ({ x: 0, y: 0, w: 1, h: 1 });
 
-export const noEdge = (): BlendEdge => ({ width: 0, level: 0, curve: 1 });
+const noEdge = (): BlendEdge => ({ width: 0, level: 0, curve: 1 });
 
 export const defaultBlend = (): BlendConfig => ({
   left: noEdge(),
