@@ -116,7 +116,7 @@ export const segmentEnds = (path: SoundPath, segment: PathSegment) => {
   };
 };
 
-export const sampleSegment = (path: SoundPath, segment: PathSegment, t: number): Vec3 | null => {
+const sampleSegment = (path: SoundPath, segment: PathSegment, t: number): Vec3 | null => {
   const ends = segmentEnds(path, segment);
   if (!ends) return null;
   return quad(ends.a, ends.control, ends.b, Math.max(0, Math.min(1, t)));
