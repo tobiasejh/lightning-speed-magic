@@ -94,7 +94,9 @@ app.whenReady().then(async () => {
 
   autoUpdater.on("checking-for-update", () => log.info("Checking for update..."));
   autoUpdater.on("update-available", (info) => log.info("Update available:", info.version));
-  autoUpdater.on("update-not-available", (info) => log.info("No update available. Current:", info.version));
+  autoUpdater.on("update-not-available", (info) =>
+    log.info("No update available. Current:", info.version),
+  );
   autoUpdater.on("error", (err) => log.error("Updater error:", err));
   autoUpdater.on("download-progress", (p) => log.info(`Downloading: ${Math.round(p.percent)}%`));
   autoUpdater.on("update-downloaded", (info) => log.info("Update downloaded:", info.version));

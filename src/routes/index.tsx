@@ -1434,13 +1434,12 @@ export function Studio() {
       >
         <header>
           <h1 className="flex items-center gap-2 text-lg font-semibold tracking-tight">
-               <h1 className="flex items-center gap-2 text-lg font-semibold tracking-tight">
-                  <img src={innopixel_logo} alt="Prism logo" className="h-8 w-auto" />
-               </h1>
+            <h1 className="flex items-center gap-2 text-lg font-semibold tracking-tight">
+              <img src={innopixel_logo} alt="Prism logo" className="h-8 w-auto" />
+            </h1>
           </h1>
           <p className="mt-1 text-xs text-muted-foreground">
-            Projection mapping and spatial sound in one application. 
-            Made by Innopixel.
+            Projection mapping and spatial sound in one application. Made by Innopixel.
           </p>
         </header>
 
