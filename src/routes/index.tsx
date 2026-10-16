@@ -417,14 +417,16 @@ export function Studio() {
 
   const reverbRef = useRef(reverb);
   reverbRef.current = reverb;
+  // the engine is created lazily, so it must read the room at that moment, not at first render
+  const roomRef = useRef(room);
+  roomRef.current = room;
 
   const engine = useCallback(() => {
     if (!engineRef.current) {
-      engineRef.current = new SpatialEngine(room, reverbRef.current);
+      engineRef.current = new SpatialEngine(roomRef.current, reverbRef.current);
       setMaxChannels(engineRef.current.maxChannels);
     }
     return engineRef.current;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const levels = useCallback<AudioLevelProvider>((src) => {
@@ -496,7 +498,9 @@ export function Studio() {
       setProjectId(project.id);
       setProjectName(project.name);
       setGlobals({ ...defaultGlobals(), ...project.globals });
-      setRoom(upgradeRoom(project.room));
+      const nextRoom = upgradeRoom(project.room);
+      roomRef.current = nextRoom; // engine() below runs before the next render
+      setRoom(nextRoom);
       setReverb(
         upgradeReverb(project.reverb, (project.room as { reverb?: string } | undefined)?.reverb),
       );
