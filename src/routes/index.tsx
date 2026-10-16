@@ -14,7 +14,6 @@ import {
   Scissors,
   Trash2,
   Upload,
-  Zap,
 } from "lucide-react";
 import {
   useCallback,
@@ -78,7 +77,6 @@ import {
   upgradeRoom,
   mediaElements,
   mediaMeta,
-  type Crop,
   type Globals,
   type MediaItem,
   type OutputScreen,
@@ -206,25 +204,6 @@ function videoHasAudio(v: HTMLVideoElement) {
   return true;
 }
 
-const videoSoundId = (mediaId: string) => `vs-${mediaId}`;
-
-const newVideoSound = (m: Omit<MediaItem, "url">, i: number, playing: boolean): SoundItem => ({
-  id: videoSoundId(m.id),
-  name: `${m.name} (video)`,
-  kind: "video",
-  channels: 2,
-  position: { x: 0, y: -0.3, z: 0 },
-  gain: 1,
-  loop: true,
-  mute: false,
-  solo: false,
-  playing,
-  color: SOUND_COLORS[i % SOUND_COLORS.length]!,
-  heading: 0,
-  duration: 0,
-  mediaId: m.id,
-});
-
 export function Studio() {
   const [projectId, setProjectId] = useState(() => `p${Date.now()}`);
   const [projectName, setProjectName] = useState("Untitled show");
@@ -254,7 +233,6 @@ export function Studio() {
   const [movementPositions, setMovementPositions] = useState<Record<string, Vec3>>({});
   const [showPlaying, setShowPlaying] = useState(false);
   const [showTime, setShowTime] = useState(0);
-  const [activeSceneId, setActiveSceneId] = useState<string | null>(null);
 
   const [mapping, setMapping] = useState(true);
   const [snap, setSnap] = useState(true);
@@ -1135,8 +1113,8 @@ export function Studio() {
     const candidates = snapCandidates(surfaces, selected.id);
     const move = (ev: PointerEvent) => {
       let p: Pt = {
-        x: Math.min(1.4, Math.max(-0.4, (ev.clientX - rect.left) / rect.width)),
-        y: Math.min(1.4, Math.max(-0.4, (ev.clientY - rect.top) / rect.height)),
+        x: (ev.clientX - rect.left) / rect.width,
+        y: (ev.clientY - rect.top) / rect.height,
       };
       let flash: Pt | null = null;
       if (snap && !ev.shiftKey) {
@@ -1184,31 +1162,7 @@ export function Studio() {
     return visuals.find((v) => v.id === source.slice(7))?.name ?? "Visual";
   };
 
-  // ----- legacy scenes and v5 timeline -----
-  const saveScene = () => {
-    const scene: Scene = {
-      id: `sc${Date.now()}`,
-      name: `Scene ${scenes.length + 1}`,
-      surfaces: surfaces.map((s) => ({ ...s, corners: s.corners.map((c) => ({ ...c })) })),
-      globals: { ...globals },
-      testPattern,
-    };
-    setScenes((prev) => [...prev, scene]);
-    setActiveSceneId(scene.id);
-  };
-
-  const recallScene = useCallback(
-    (id: string) => {
-      const sc = scenes.find((s) => s.id === id);
-      if (!sc) return;
-      setSurfaces(sc.surfaces.map(upgradeSurface));
-      setGlobals((g) => ({ ...g, ...sc.globals, blackout: g.blackout }));
-      setTestPattern(sc.testPattern ?? "grid");
-      setActiveSceneId(id);
-    },
-    [scenes],
-  );
-
+  // ----- v5 timeline -----
   const applyTimelineAt = useCallback(
     (time: number, playing: boolean) => {
       const active = activeClipsAt(timelineTracks, timelineClips, time);
@@ -1434,9 +1388,7 @@ export function Studio() {
       >
         <header>
           <h1 className="flex items-center gap-2 text-lg font-semibold tracking-tight">
-            <h1 className="flex items-center gap-2 text-lg font-semibold tracking-tight">
-              <img src={innopixel_logo} alt="Prism logo" className="h-8 w-auto" />
-            </h1>
+            <img src={innopixel_logo} alt="Prism logo" className="h-8 w-auto" />
           </h1>
           <p className="mt-1 text-xs text-muted-foreground">
             Projection mapping and spatial sound in one application. Made by Innopixel.
