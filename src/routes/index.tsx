@@ -268,7 +268,9 @@ export function Studio() {
     showTimeRef.current = t;
     setShowTime(t);
   }, []);
-  const activeTimelineClips = useRef(new Set<string>());
+  // clips that were playing on the last applied frame, kept whole so a clip deleted
+  // mid-show can still be paused
+  const activeTimelineClips = useRef(new Map<string, TimelineClip>());
   const surfacesRef = useRef(surfaces);
   const [stage, setStage] = useState({ w: 0, h: 0 });
 
@@ -1233,7 +1235,11 @@ export function Studio() {
           }
         }
       }
-      for (const clip of timelineClips) {
+      const currentIds = new Set(timelineClips.map((clip) => clip.id));
+      const removed = [...activeTimelineClips.current.values()].filter(
+        (clip) => !currentIds.has(clip.id),
+      );
+      for (const clip of [...timelineClips, ...removed]) {
         if (nextIds.has(clip.id)) continue;
         if (clip.kind === "audio" && clip.soundId && !activeSoundIds.has(clip.soundId)) {
           engineRef.current?.pauseSound(clip.soundId);
@@ -1244,7 +1250,7 @@ export function Studio() {
           if (element instanceof HTMLVideoElement) element.pause();
         }
       }
-      activeTimelineClips.current = nextIds;
+      activeTimelineClips.current = new Map(active.map((clip) => [clip.id, clip]));
     },
     [soundPaths, timelineClips, timelineTracks],
   );
@@ -1267,7 +1273,7 @@ export function Studio() {
     setShowPlaying(false);
     setShowTimeNow(0);
     setMovementPositions({});
-    activeTimelineClips.current.clear();
+    // no clearing first: applyTimelineAt needs the last active clips to pause deleted ones
     applyTimelineAt(0, false);
   };
 
