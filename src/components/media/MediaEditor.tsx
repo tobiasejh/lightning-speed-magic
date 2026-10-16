@@ -36,13 +36,21 @@ export function MediaEditor(p: Props) {
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
 
+  // Kept apart on purpose: saving a crop must not reset unsaved trim edits (and the
+  // other way round), and only a different item (a new <video>) resets length/playback.
   useEffect(() => {
-    setCrop(item?.crop ?? null);
-    setInS(item?.trimStart ?? 0);
-    setOutS(item?.trimEnd ?? 0);
     setDuration(0);
     setPlaying(false);
-  }, [item?.id, item?.crop, item?.trimStart, item?.trimEnd]);
+  }, [item?.id]);
+
+  useEffect(() => {
+    setCrop(item?.crop ?? null);
+  }, [item?.id, item?.crop]);
+
+  useEffect(() => {
+    setInS(item?.trimStart ?? 0);
+    setOutS(item?.trimEnd ?? 0);
+  }, [item?.id, item?.trimStart, item?.trimEnd]);
 
   // keep preview inside the in/out range
   useEffect(() => {
