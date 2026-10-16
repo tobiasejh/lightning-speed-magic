@@ -321,6 +321,8 @@ export function ShowPanel(p: Props) {
                         event.stopPropagation();
                         p.onSelectClip(clip.id);
                       }}
+                      // the lane adds a clip on double-click; that must not fire on a clip
+                      onDoubleClick={(event) => event.stopPropagation()}
                       onContextMenu={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
