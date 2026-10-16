@@ -1262,6 +1262,8 @@ export function Studio() {
   const runShow = () => {
     if (!timelineClips.length) return;
     engine().resume();
+    // at (or past) the end, Play starts over instead of stopping again on the first frame
+    if (showTimeRef.current >= timelineLength(timelineClips)) setShowTimeNow(0);
     showStart.current = performance.now() - showTimeRef.current * 1000;
     setShowPlaying(true);
   };
