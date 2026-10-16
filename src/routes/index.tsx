@@ -46,6 +46,7 @@ import {
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { LabeledRow } from "@/components/common/LabeledRow";
 import { supabase } from "@/integrations/supabase/client";
 import { MicAnalyser, silentLevels, type AudioLevelProvider } from "@/lib/audio";
 import { SpatialEngine } from "@/lib/audio-engine";
@@ -1458,7 +1459,12 @@ export function Studio() {
             </div>
             <Switch checked={micOn} onCheckedChange={() => void toggleMic()} />
           </div>
-          <Labeled label="Brightness" value={`${Math.round(globals.brightness * 100)}%`}>
+          <LabeledRow
+            className="space-y-2"
+            valueClassName="text-foreground"
+            label="Brightness"
+            value={`${Math.round(globals.brightness * 100)}%`}
+          >
             <Slider
               value={[globals.brightness]}
               min={0.1}
@@ -1466,13 +1472,18 @@ export function Studio() {
               step={0.01}
               onValueChange={([v = 0]) => setGlobals((g) => ({ ...g, brightness: v }))}
             />
-          </Labeled>
+          </LabeledRow>
         </section>
 
         {/* Look */}
         <section className="space-y-3">
           <SectionTitle>Look</SectionTitle>
-          <Labeled label="Speed" value={`${globals.speed.toFixed(2)}x`}>
+          <LabeledRow
+            className="space-y-2"
+            valueClassName="text-foreground"
+            label="Speed"
+            value={`${globals.speed.toFixed(2)}x`}
+          >
             <Slider
               value={[globals.speed]}
               min={0}
@@ -1480,8 +1491,13 @@ export function Studio() {
               step={0.01}
               onValueChange={([v = 0]) => setGlobals((g) => ({ ...g, speed: v }))}
             />
-          </Labeled>
-          <Labeled label="Intensity" value={`${Math.round(globals.intensity * 100)}%`}>
+          </LabeledRow>
+          <LabeledRow
+            className="space-y-2"
+            valueClassName="text-foreground"
+            label="Intensity"
+            value={`${Math.round(globals.intensity * 100)}%`}
+          >
             <Slider
               value={[globals.intensity]}
               min={0}
@@ -1489,8 +1505,13 @@ export function Studio() {
               step={0.01}
               onValueChange={([v = 0]) => setGlobals((g) => ({ ...g, intensity: v }))}
             />
-          </Labeled>
-          <Labeled label="Colour" value={`${Math.round(globals.hue)}°`}>
+          </LabeledRow>
+          <LabeledRow
+            className="space-y-2"
+            valueClassName="text-foreground"
+            label="Colour"
+            value={`${Math.round(globals.hue)}°`}
+          >
             <Slider
               value={[globals.hue]}
               min={0}
@@ -1498,7 +1519,7 @@ export function Studio() {
               step={1}
               onValueChange={([v = 0]) => setGlobals((g) => ({ ...g, hue: v }))}
             />
-          </Labeled>
+          </LabeledRow>
         </section>
 
         {/* Surfaces */}
@@ -1556,7 +1577,12 @@ export function Studio() {
                 </div>
                 {selected?.id === s.id && (
                   <div className="mt-3 space-y-2">
-                    <Labeled label="Opacity" value={`${Math.round(s.opacity * 100)}%`}>
+                    <LabeledRow
+                      className="space-y-2"
+                      valueClassName="text-foreground"
+                      label="Opacity"
+                      value={`${Math.round(s.opacity * 100)}%`}
+                    >
                       <Slider
                         value={[s.opacity]}
                         min={0}
@@ -1564,8 +1590,13 @@ export function Studio() {
                         step={0.01}
                         onValueChange={([v = 0]) => patch(s.id, { opacity: v })}
                       />
-                    </Labeled>
-                    <Labeled label="Colour shift" value={`${s.hueShift}°`}>
+                    </LabeledRow>
+                    <LabeledRow
+                      className="space-y-2"
+                      valueClassName="text-foreground"
+                      label="Colour shift"
+                      value={`${s.hueShift}°`}
+                    >
                       <Slider
                         value={[s.hueShift]}
                         min={0}
@@ -1573,7 +1604,7 @@ export function Studio() {
                         step={1}
                         onValueChange={([v = 0]) => patch(s.id, { hueShift: v })}
                       />
-                    </Labeled>
+                    </LabeledRow>
                     <div className="flex items-center gap-1">
                       <Button
                         size="sm"
@@ -2216,25 +2247,5 @@ function SectionTitle({ children }: { children: ReactNode }) {
     <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
       {children}
     </h2>
-  );
-}
-
-function Labeled({
-  label,
-  value,
-  children,
-}: {
-  label: string;
-  value: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between text-xs">
-        <span className="text-muted-foreground">{label}</span>
-        <span className="tabular-nums text-foreground">{value}</span>
-      </div>
-      {children}
-    </div>
   );
 }

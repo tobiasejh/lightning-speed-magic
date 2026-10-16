@@ -21,6 +21,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
+import { LabeledRow } from "@/components/common/LabeledRow";
+import { formatTime } from "@/lib/format";
 import { SPEAKER_LAYOUTS, type RoomConfig, type SoundItem } from "@/lib/types";
 
 type Props = {
@@ -67,7 +69,7 @@ export function SoundPanel(p: Props) {
           <Plus className="size-4" /> Add sound
         </Button>
       </div>
-      <Row label="Master volume" value={`${Math.round(p.room.masterGain * 100)}%`}>
+      <LabeledRow label="Master volume" value={`${Math.round(p.room.masterGain * 100)}%`}>
         <Slider
           value={[p.room.masterGain]}
           min={0}
@@ -75,7 +77,7 @@ export function SoundPanel(p: Props) {
           step={0.01}
           onValueChange={([v = 0]) => p.onRoom({ masterGain: v })}
         />
-      </Row>
+      </LabeledRow>
 
       {p.sounds.length === 0 ? (
         <p className="text-xs text-muted-foreground">
@@ -108,7 +110,7 @@ export function SoundPanel(p: Props) {
                         : s.kind === "stereo"
                           ? "Stereo → mono"
                           : "Mono"}
-                      {s.duration ? ` · ${fmt(s.duration)}` : ""}
+                      {s.duration ? ` · ${formatTime(s.duration)}` : ""}
                     </span>
                   </button>
                   <Tog on={s.loop} label="Loop" onClick={() => p.onPatch(s.id, { loop: !s.loop })}>
@@ -130,7 +132,7 @@ export function SoundPanel(p: Props) {
                 </div>
                 {active && (
                   <div className="mt-2 space-y-2">
-                    <Row label="Volume" value={`${Math.round(s.gain * 100)}%`}>
+                    <LabeledRow label="Volume" value={`${Math.round(s.gain * 100)}%`}>
                       <Slider
                         value={[s.gain]}
                         min={0}
@@ -138,9 +140,9 @@ export function SoundPanel(p: Props) {
                         step={0.01}
                         onValueChange={([v = 0]) => p.onPatch(s.id, { gain: v })}
                       />
-                    </Row>
+                    </LabeledRow>
                     {s.kind === "ambisonic" ? (
-                      <Row label="Heading" value={`${Math.round(s.heading)}°`}>
+                      <LabeledRow label="Heading" value={`${Math.round(s.heading)}°`}>
                         <Slider
                           value={[s.heading]}
                           min={-180}
@@ -148,9 +150,9 @@ export function SoundPanel(p: Props) {
                           step={1}
                           onValueChange={([v = 0]) => p.onPatch(s.id, { heading: v })}
                         />
-                      </Row>
+                      </LabeledRow>
                     ) : (
-                      <Row label="Height" value={`${s.position.z.toFixed(2)}`}>
+                      <LabeledRow label="Height" value={`${s.position.z.toFixed(2)}`}>
                         <Slider
                           value={[s.position.z]}
                           min={-1}
@@ -160,7 +162,7 @@ export function SoundPanel(p: Props) {
                             p.onPatch(s.id, { position: { ...s.position, z: v } })
                           }
                         />
-                      </Row>
+                      </LabeledRow>
                     )}
                   </div>
                 )}
@@ -318,7 +320,7 @@ export function SoundPanel(p: Props) {
           </Select>
         )}
         <div className="grid grid-cols-2 gap-3">
-          <Row label="Width" value={`${p.room.width} m`}>
+          <LabeledRow label="Width" value={`${p.room.width} m`}>
             <Slider
               value={[p.room.width]}
               min={2}
@@ -326,8 +328,8 @@ export function SoundPanel(p: Props) {
               step={1}
               onValueChange={([v = 8]) => p.onRoom({ width: v })}
             />
-          </Row>
-          <Row label="Length" value={`${p.room.length} m`}>
+          </LabeledRow>
+          <LabeledRow label="Length" value={`${p.room.length} m`}>
             <Slider
               value={[p.room.length]}
               min={2}
@@ -335,7 +337,7 @@ export function SoundPanel(p: Props) {
               step={1}
               onValueChange={([v = 8]) => p.onRoom({ length: v })}
             />
-          </Row>
+          </LabeledRow>
         </div>
         <Select
           value={String(p.room.order)}
@@ -382,25 +384,3 @@ function Tog({
     </button>
   );
 }
-
-function Row({
-  label,
-  value,
-  children,
-}: {
-  label: string;
-  value: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between text-xs">
-        <span className="text-muted-foreground">{label}</span>
-        <span className="tabular-nums">{value}</span>
-      </div>
-      {children}
-    </div>
-  );
-}
-
-const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;

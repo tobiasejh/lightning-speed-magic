@@ -27,6 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { formatTime } from "@/lib/format";
 import { axisOutline, pathDuration, snapTimelineTime, timelineLength } from "@/lib/timeline";
 import type {
   MediaItem,
@@ -68,8 +69,6 @@ type Props = {
   onPatchPath: (path: SoundPath) => void;
 };
 
-const fmt = (seconds: number) =>
-  `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 const colors: Record<TimelineTrackKind, string> = {
   visual: "bg-chart-1/70",
   audio: "bg-chart-3/70",
@@ -229,7 +228,7 @@ export function ShowPanel(p: Props) {
         <Button size="icon" variant="secondary" onClick={p.onStop} aria-label="Stop timeline">
           <Square />
         </Button>
-        <span className="min-w-12 font-mono text-xs tabular-nums">{fmt(p.time)}</span>
+        <span className="min-w-12 font-mono text-xs tabular-nums">{formatTime(p.time)}</span>
         <Button
           size="icon"
           variant="ghost"

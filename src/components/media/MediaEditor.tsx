@@ -10,7 +10,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
+import { LabeledRow } from "@/components/common/LabeledRow";
+import { formatTimeTenths } from "@/lib/format";
 import type { Crop, MediaItem, SoundItem } from "@/lib/types";
+import { clamp01 } from "@/lib/warp";
 
 type Props = {
   media: MediaItem[];
@@ -21,12 +24,6 @@ type Props = {
   onSaveClip: (id: string, crop: Crop | undefined, inS: number, outS: number) => void;
   onDelete: (id: string) => void;
 };
-
-const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
-const fmt = (s: number) =>
-  `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}.${String(
-    Math.floor((s % 1) * 10),
-  )}`;
 
 export function MediaEditor(p: Props) {
   const item = p.item;
@@ -230,7 +227,7 @@ export function MediaEditor(p: Props) {
 
             {item.kind === "video" && duration > 0 && (
               <>
-                <Labelled label="Start" value={fmt(inS)}>
+                <LabeledRow label="Start" value={formatTimeTenths(inS)}>
                   <Slider
                     value={[inS]}
                     min={0}
@@ -238,8 +235,8 @@ export function MediaEditor(p: Props) {
                     step={0.05}
                     onValueChange={([v = 0]) => setInS(Math.min(v, (outS || duration) - 0.1))}
                   />
-                </Labelled>
-                <Labelled label="End" value={fmt(outS || duration)}>
+                </LabeledRow>
+                <LabeledRow label="End" value={formatTimeTenths(outS || duration)}>
                   <Slider
                     value={[outS || duration]}
                     min={0}
@@ -247,9 +244,10 @@ export function MediaEditor(p: Props) {
                     step={0.05}
                     onValueChange={([v = 0]) => setOutS(Math.max(v, inS + 0.1))}
                   />
-                </Labelled>
+                </LabeledRow>
                 <p className="text-xs text-muted-foreground">
-                  Playhead {fmt(time)} · clip length {fmt(Math.max(0, (outS || duration) - inS))}
+                  Playhead {formatTimeTenths(time)} · clip length{" "}
+                  {formatTimeTenths(Math.max(0, (outS || duration) - inS))}
                 </p>
               </>
             )}
@@ -280,7 +278,7 @@ export function MediaEditor(p: Props) {
                   </SelectContent>
                 </Select>
                 {item.syncSoundId && (
-                  <Labelled
+                  <LabeledRow
                     label="Offset"
                     value={`${Math.round((item.syncOffset ?? 0) * 1000)} ms`}
                   >
@@ -291,7 +289,7 @@ export function MediaEditor(p: Props) {
                       step={0.01}
                       onValueChange={([v = 0]) => p.onPatch(item.id, { syncOffset: v })}
                     />
-                  </Labelled>
+                  </LabeledRow>
                 )}
                 <p className="text-[11px] text-muted-foreground">
                   The linked sound starts and stops with this video, shifted by the offset.
@@ -301,26 +299,6 @@ export function MediaEditor(p: Props) {
           </div>
         </>
       )}
-    </div>
-  );
-}
-
-function Labelled({
-  label,
-  value,
-  children,
-}: {
-  label: string;
-  value: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between text-xs">
-        <span className="text-muted-foreground">{label}</span>
-        <span className="tabular-nums">{value}</span>
-      </div>
-      {children}
     </div>
   );
 }

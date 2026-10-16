@@ -2,6 +2,7 @@ import { Waves } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
+import { LabeledRow } from "@/components/common/LabeledRow";
 import * as React from "react";
 import type { ReverbConfig, RoomConfig, SoundItem, TimelineClip } from "@/lib/types";
 
@@ -59,7 +60,12 @@ export function AudioEffectsPanel(p: Props) {
           </Button>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
-          <Row label="Bus level" value={`${Math.round(p.reverb.level * 100)}%`}>
+          <LabeledRow
+            size="sm"
+            className="space-y-1"
+            label="Bus level"
+            value={`${Math.round(p.reverb.level * 100)}%`}
+          >
             <Slider
               value={[p.reverb.level]}
               min={0}
@@ -67,7 +73,7 @@ export function AudioEffectsPanel(p: Props) {
               step={0.01}
               onValueChange={([v = 0.8]) => p.onReverb({ level: v })}
             />
-          </Row>
+          </LabeledRow>
           <CommitRow
             label="Room size"
             hint="Bigger rooms space the first bounces further apart."
@@ -88,7 +94,12 @@ export function AudioEffectsPanel(p: Props) {
             format={(v) => `${v.toFixed(1)} s`}
             onCommit={(v) => p.onReverb({ decay: v })}
           />
-          <Row label="Pre-delay" value={`${Math.round(p.reverb.preDelayMs)} ms`}>
+          <LabeledRow
+            size="sm"
+            className="space-y-1"
+            label="Pre-delay"
+            value={`${Math.round(p.reverb.preDelayMs)} ms`}
+          >
             <Slider
               value={[p.reverb.preDelayMs]}
               min={0}
@@ -96,8 +107,13 @@ export function AudioEffectsPanel(p: Props) {
               step={1}
               onValueChange={([v = 20]) => p.onReverb({ preDelayMs: v })}
             />
-          </Row>
-          <Row label="Early reflections" value={`${Math.round(p.reverb.earlyAmount * 100)}%`}>
+          </LabeledRow>
+          <LabeledRow
+            size="sm"
+            className="space-y-1"
+            label="Early reflections"
+            value={`${Math.round(p.reverb.earlyAmount * 100)}%`}
+          >
             <Slider
               value={[p.reverb.earlyAmount]}
               min={0}
@@ -105,7 +121,7 @@ export function AudioEffectsPanel(p: Props) {
               step={0.01}
               onValueChange={([v = 0.6]) => p.onReverb({ earlyAmount: v })}
             />
-          </Row>
+          </LabeledRow>
           <CommitRow
             label="Reflection spread"
             value={p.reverb.earlySpread}
@@ -170,29 +186,6 @@ export function AudioEffectsPanel(p: Props) {
   );
 }
 
-function Row({
-  label,
-  value,
-  hint,
-  children,
-}: {
-  label: string;
-  value: string;
-  hint?: string | undefined;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-1">
-      <div className="flex items-center justify-between text-[11px]">
-        <span className="text-muted-foreground">{label}</span>
-        <span>{value}</span>
-      </div>
-      {children}
-      {hint && <p className="text-[10px] text-muted-foreground">{hint}</p>}
-    </div>
-  );
-}
-
 /** A slider row that shows the value live while dragging, but only applies it on release. */
 function CommitRow({
   label,
@@ -222,7 +215,7 @@ function CommitRow({
   }, [value]);
 
   return (
-    <Row label={label} value={format(local)} hint={hint}>
+    <LabeledRow size="sm" className="space-y-1" label={label} value={format(local)} hint={hint}>
       <Slider
         value={[local]}
         min={min}
@@ -238,6 +231,6 @@ function CommitRow({
           onCommit(v);
         }}
       />
-    </Row>
+    </LabeledRow>
   );
 }
