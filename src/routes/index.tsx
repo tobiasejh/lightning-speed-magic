@@ -1413,6 +1413,7 @@ export function Studio() {
           <ProjectsMenu
             name={projectName}
             savedAt={savedAt}
+            saveError={saveError}
             projects={projects.filter((p) => p.id !== projectId)}
             onRename={setProjectName}
             onSave={() => void persist(buildProject())}
@@ -2068,14 +2069,6 @@ export function Studio() {
           {view === "timeline" && !fullscreen && (
             <div className="absolute inset-0 z-30 min-w-0 overflow-y-auto bg-background p-4 lg:p-6">
               <div className="mx-auto w-full max-w-[96rem]">
-                {saveError && (
-                  <p
-                    role="alert"
-                    className="mb-3 rounded border border-destructive/60 p-2 text-xs text-destructive"
-                  >
-                    {saveError}
-                  </p>
-                )}
                 <ShowPanel
                   tracks={timelineTracks}
                   clips={timelineClips}

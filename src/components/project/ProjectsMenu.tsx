@@ -16,6 +16,8 @@ import type { Project } from "@/lib/types";
 type Props = {
   name: string;
   savedAt: number | null;
+  /** last save failure, shown under the save time so it is visible in every view */
+  saveError?: string | null;
   projects: Project[];
   onRename: (name: string) => void;
   onSave: () => void;
@@ -121,6 +123,14 @@ export function ProjectsMenu(p: Props) {
       <p className="text-[11px] text-muted-foreground">
         {p.savedAt ? `Saved ${new Date(p.savedAt).toLocaleTimeString()}` : "Not saved yet"}
       </p>
+      {p.saveError && (
+        <p
+          role="alert"
+          className="rounded border border-destructive/60 p-2 text-xs text-destructive"
+        >
+          {p.saveError}
+        </p>
+      )}
     </div>
   );
 }
