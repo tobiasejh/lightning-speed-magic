@@ -514,7 +514,12 @@ export class SpatialEngine {
       g.startedAt = this.ctx.currentTime - g.offset;
       g.bufSrc = src;
       src.onended = () => {
-        if (g.bufSrc === src && !g.item.loop) g.offset = 0;
+        // AudioBufferSourceNodes are one-shot. Clear the reference when playback
+        // naturally ends, otherwise playSound() mistakes the ended node for an
+        // active source and refuses to start the sound again.
+        if (g.bufSrc !== src) return;
+        g.bufSrc = null;
+        if (!g.item.loop) g.offset = 0;
       };
     }
   }
