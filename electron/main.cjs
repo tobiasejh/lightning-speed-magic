@@ -27,8 +27,12 @@ const types = {
   ".map": "application/json",
 };
 
+// Keep the origin stable across launches. IndexedDB is scoped to scheme + host + port,
+// so an ephemeral port would make every saved show appear to vanish after restart.
+const APP_PORT = 47831;
+
 function startServer() {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
       const url = new URL(req.url, "http://localhost");
       let file = path.join(root, decodeURIComponent(url.pathname));
@@ -38,7 +42,11 @@ function startServer() {
       res.setHeader("Content-Type", types[path.extname(file)] || "application/octet-stream");
       fs.createReadStream(file).pipe(res);
     });
-    server.listen(0, "127.0.0.1", () => resolve(`http://127.0.0.1:${server.address().port}`));
+    server.once("error", (error) => {
+      // Do not silently fall back to a random port: that would change the IndexedDB origin.
+      reject(new Error(`Prism could not start its local server on port ${APP_PORT}: ${error.message}`));
+    });
+    server.listen(APP_PORT, "127.0.0.1", () => resolve(`http://127.0.0.1:${APP_PORT}`));
   });
 }
 
@@ -76,7 +84,17 @@ function showMissingFiles(win) {
 }
 
 app.whenReady().then(async () => {
-  base = await startServer();
+  try {
+    base = await startServer();
+  } catch (error) {
+    log.error(error);
+    const win = new BrowserWindow({ width: 720, height: 360, autoHideMenuBar: true });
+    const message = error instanceof Error ? error.message : String(error);
+    void win.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(
+      `<body style="background:#0b0d12;color:#e6e8ef;font:14px system-ui;padding:32px;white-space:pre-wrap">${message}\n\nClose any other Prism instance and try again.</body>`,
+    ));
+    return;
+  }
   const win = makeWindow("/");
   if (!fs.existsSync(path.join(root, "index.html"))) showMissingFiles(win);
 
