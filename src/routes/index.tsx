@@ -1,15 +1,20 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import {
+  ChevronDown,
   Eye,
   EyeOff,
   FlipHorizontal2,
   FlipVertical2,
+  GripVertical,
   Maximize2,
   Mic,
   MicOff,
   Minimize2,
+  Pause,
+  Play,
   Plus,
+  RotateCcw,
   RotateCw,
   Scissors,
   Trash2,
@@ -22,6 +27,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type DragEventHandler,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
@@ -36,6 +42,7 @@ import { ShowPanel } from "@/components/timeline/ShowPanel";
 import { SoundPanel } from "@/components/audio/SoundPanel";
 import { SurfaceLayer } from "@/components/stage/SurfaceLayer";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -50,9 +57,17 @@ import { LabeledRow } from "@/components/common/LabeledRow";
 import { supabase } from "@/integrations/supabase/client";
 import { MicAnalyser, silentLevels, type AudioLevelProvider } from "@/lib/audio";
 import { SpatialEngine } from "@/lib/audio-engine";
+import { formatTime } from "@/lib/format";
 import { History, type ShowSnapshot } from "@/lib/history";
 import { snapCandidates, snapPoint } from "@/lib/snap";
-import { activeClipsAt, positionOnPath, timelineLength, upgradePath } from "@/lib/timeline";
+import {
+  activeClipsAt,
+  patchSegment,
+  positionOnPath,
+  timelineLength,
+  upgradePath,
+  withDuration,
+} from "@/lib/timeline";
 import {
   LAST_KEY,
   deleteProject,
@@ -153,6 +168,7 @@ const RESOLUTION_PRESETS = [
 ];
 
 const MENU_WIDTH_KEY = "prism-menu-width";
+const DEFAULT_PATH_LENGTH_KEY = "prism-default-path-length";
 const DEFAULT_MENU_WIDTH = 352;
 const MIN_MENU_WIDTH = 280;
 const MAX_MENU_WIDTH = 640;
@@ -213,6 +229,11 @@ export function Studio() {
 
   const [surfaces, setSurfaces] = useState<Surface[]>(() => [newSurface(1, "visual:plasma")]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [draggedSurfaceId, setDraggedSurfaceId] = useState<string | null>(null);
+  const [dropSurface, setDropSurface] = useState<{
+    id: string;
+    position: "before" | "after";
+  } | null>(null);
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [sounds, setSounds] = useState<SoundItem[]>([]);
   const [selectedSoundId, setSelectedSoundId] = useState<string | null>(null);
@@ -227,6 +248,7 @@ export function Studio() {
   const [timelineTracks, setTimelineTracks] = useState<TimelineTrack[]>(defaultTimelineTracks);
   const [timelineClips, setTimelineClips] = useState<TimelineClip[]>([]);
   const [soundPaths, setSoundPaths] = useState<SoundPath[]>([]);
+  const [defaultPathLengthMs, setDefaultPathLengthMs] = useState(1000);
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [activePathId, setActivePathId] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -238,6 +260,7 @@ export function Studio() {
   const [mapping, setMapping] = useState(true);
   const [snap, setSnap] = useState(true);
   const [view, setView] = useState<StageView>("stage");
+  const [sourceTab, setSourceTab] = useState("visuals");
   const [editMediaId, setEditMediaId] = useState<string | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const [micOn, setMicOn] = useState(false);
@@ -260,6 +283,7 @@ export function Studio() {
   const channelRef = useRef<BroadcastChannel | null>(null);
   const outputWins = useRef(new Map<string, Window>());
   const showStart = useRef(0);
+  const togglePlaybackRef = useRef<() => void>(() => {});
   // Authoritative show time. React state (`showTime`) only follows it at ~15 Hz while
   // playing, so the whole editor does not re-render on every animation frame.
   const showTimeRef = useRef(0);
@@ -269,9 +293,17 @@ export function Studio() {
     setShowTime(t);
   }, []);
   const activeTimelineClips = useRef(new Set<string>());
-  const activeTimelineClipRefs = useRef(new Map<string, TimelineClip>());
   const surfacesRef = useRef(surfaces);
   const [stage, setStage] = useState({ w: 0, h: 0 });
+  const [stageTransform, setStageTransform] = useState({ scale: 1, x: 0, y: 0 });
+  const stagePanRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    offsetX: number;
+    offsetY: number;
+    scale: number;
+  } | null>(null);
 
   useEffect(() => {
     surfacesRef.current = surfaces;
@@ -285,6 +317,21 @@ export function Studio() {
       setMenuWidth(Math.max(MIN_MENU_WIDTH, Math.min(MAX_MENU_WIDTH, savedWidth)));
     }
   }, []);
+
+  useEffect(() => {
+    const storedLength = window.localStorage.getItem(DEFAULT_PATH_LENGTH_KEY);
+    if (storedLength === null) return;
+    const savedLength = Number(storedLength);
+    if (Number.isFinite(savedLength) && savedLength >= 0) {
+      setDefaultPathLengthMs(savedLength);
+    }
+  }, []);
+
+  useEffect(() => {
+    setSourceTab(
+      view === "editor" ? "media" : view === "room" || view === "effects" ? "sound" : "visuals",
+    );
+  }, [view]);
 
   const resizeMenu = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -349,8 +396,22 @@ export function Studio() {
     const onKey = (event: KeyboardEvent) => {
       const el = event.target as HTMLElement | null;
       // let people type (and use the browser's own undo) inside fields
-      if (el && (el.closest("input, textarea, [contenteditable='true']") || el.isContentEditable))
+      if (
+        el &&
+        (el.closest("input, textarea, select, [contenteditable='true']") || el.isContentEditable)
+      )
         return;
+      if (
+        event.code === "Space" &&
+        !event.repeat &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey
+      ) {
+        event.preventDefault();
+        togglePlaybackRef.current();
+        return;
+      }
       const undoKey = (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z";
       const redoKey =
         (event.metaKey || event.ctrlKey) &&
@@ -446,6 +507,30 @@ export function Studio() {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el) return;
+    const onWheel = (event: WheelEvent) => {
+      if (view !== "stage" || fullscreen) return;
+      event.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const anchorX = event.clientX - rect.left;
+      const anchorY = event.clientY - rect.top;
+      setStageTransform((current) => {
+        const scale = Math.max(1, Math.min(4, current.scale * Math.exp(-event.deltaY * 0.0015)));
+        const x = anchorX - ((anchorX - current.x) / current.scale) * scale;
+        const y = anchorY - ((anchorY - current.y) / current.scale) * scale;
+        return {
+          scale,
+          x: Math.max(stage.w * (1 - scale), Math.min(0, x)),
+          y: Math.max(stage.h * (1 - scale), Math.min(0, y)),
+        };
+      });
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [fullscreen, stage.h, stage.w, view]);
 
   useEffect(() => {
     const onChange = () => setFullscreen(!!document.fullscreenElement);
@@ -783,6 +868,26 @@ export function Studio() {
     );
   }, []);
 
+  const reorderSurface = (sourceId: string, targetId: string, position: "before" | "after") => {
+    if (sourceId === targetId) {
+      setDraggedSurfaceId(null);
+      setDropSurface(null);
+      return;
+    }
+    setSurfaces((prev) => {
+      const from = prev.findIndex((surface) => surface.id === sourceId);
+      const target = prev.findIndex((surface) => surface.id === targetId);
+      if (from < 0 || target < 0) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      const insertion = target + (position === "after" ? 1 : 0) - (from < target ? 1 : 0);
+      next.splice(insertion, 0, moved!);
+      return next;
+    });
+    setDraggedSurfaceId(null);
+    setDropSurface(null);
+  };
+
   const patchRoom = (next: Partial<RoomConfig>) => setRoom((r) => ({ ...r, ...next }));
 
   const patchSound = (id: string, next: Partial<SoundItem>) => {
@@ -818,6 +923,19 @@ export function Studio() {
         );
       }
     }
+  };
+
+  const saveSoundPath = (path: SoundPath) =>
+    setSoundPaths((prev) =>
+      prev.some((item) => item.id === path.id)
+        ? prev.map((item) => (item.id === path.id ? path : item))
+        : [...prev, path],
+    );
+
+  const deletePath = (id: string) => {
+    setSoundPaths((prev) => prev.filter((path) => path.id !== id));
+    setTimelineClips((prev) => prev.filter((clip) => clip.pathId !== id));
+    setActivePathId((activeId) => (activeId === id ? null : activeId));
   };
 
   const removeSound = (id: string) => {
@@ -1046,6 +1164,51 @@ export function Studio() {
     if (channelRef.current) sendMedia(channelRef.current, [item]);
   };
 
+  const dragSurface = (surface: Surface) => (e: React.PointerEvent<SVGPolygonElement>) => {
+    setSelectedId(surface.id);
+    if (!mapping || e.button !== 0) return;
+    e.preventDefault();
+    const rect = stageRef.current?.getBoundingClientRect();
+    if (!rect || !rect.width || !rect.height) return;
+    const target = e.currentTarget;
+    target.setPointerCapture(e.pointerId);
+    const minX = Math.min(...surface.corners.map((corner) => corner.x));
+    const maxX = Math.max(...surface.corners.map((corner) => corner.x));
+    const minY = Math.min(...surface.corners.map((corner) => corner.y));
+    const maxY = Math.max(...surface.corners.map((corner) => corner.y));
+    const move = (ev: PointerEvent) => {
+      const dx = Math.max(
+        -minX,
+        Math.min(1 - maxX, (ev.clientX - e.clientX) / (rect.width * stageTransform.scale)),
+      );
+      const dy = Math.max(
+        -minY,
+        Math.min(1 - maxY, (ev.clientY - e.clientY) / (rect.height * stageTransform.scale)),
+      );
+      setSurfaces((prev) =>
+        prev.map((current) =>
+          current.id === surface.id
+            ? {
+                ...current,
+                corners: surface.corners.map((corner) => ({
+                  x: corner.x + dx,
+                  y: corner.y + dy,
+                })),
+              }
+            : current,
+        ),
+      );
+    };
+    const stop = () => {
+      target.removeEventListener("pointermove", move);
+      target.removeEventListener("pointerup", stop);
+      target.removeEventListener("pointercancel", stop);
+    };
+    target.addEventListener("pointermove", move);
+    target.addEventListener("pointerup", stop);
+    target.addEventListener("pointercancel", stop);
+  };
+
   /** Click an edge of the selected surface: split it with a new point and start dragging it. */
   const addEdgePoint = (edge: number) => (e: React.PointerEvent<SVGLineElement>) => {
     if (!selected || e.button !== 0) return;
@@ -1058,7 +1221,10 @@ export function Studio() {
     const pts = outlineStagePoints(selected.corners, outline.length > 4 ? outline : undefined);
     const a = pts[edge]!;
     const b = pts[(edge + 1) % pts.length]!;
-    const p = { x: (e.clientX - rect.left) / rect.width, y: (e.clientY - rect.top) / rect.height };
+    const p = {
+      x: (e.clientX - rect.left - stageTransform.x) / (rect.width * stageTransform.scale),
+      y: (e.clientY - rect.top - stageTransform.y) / (rect.height * stageTransform.scale),
+    };
     const { point } = closestOnSegment(p, a, b);
     const uv = stageToUv(selected.corners, point);
     const next = [...outline];
@@ -1074,11 +1240,26 @@ export function Studio() {
     target.setPointerCapture(e.pointerId);
     const rect = stageRef.current?.getBoundingClientRect();
     if (!rect) return;
+    const candidates = snapCandidates(surfaces, selected.id, {
+      surfaceId: selected.id,
+      excludeOutlineIndex: index,
+    });
     const move = (ev: PointerEvent) => {
-      const p = clampPoint({
-        x: (ev.clientX - rect.left) / rect.width,
-        y: (ev.clientY - rect.top) / rect.height,
-      });
+      let p: Pt = {
+        x: (ev.clientX - rect.left - stageTransform.x) / (rect.width * stageTransform.scale),
+        y: (ev.clientY - rect.top - stageTransform.y) / (rect.height * stageTransform.scale),
+      };
+      let flash: Pt | null = null;
+      if (snap && !ev.shiftKey) {
+        const r = snapPoint(p, candidates, {
+          w: rect.width * stageTransform.scale,
+          h: rect.height * stageTransform.scale,
+        });
+        p = r.point;
+        flash = r.snapped ? r.target : null;
+      }
+      p = clampPoint(p);
+      setSnapFlash(flash);
       setSurfaces((prev) =>
         prev.map((s) => {
           if (s.id !== selected.id || !s.outline) return s;
@@ -1093,6 +1274,7 @@ export function Studio() {
     const up = () => {
       target.removeEventListener("pointermove", move);
       target.removeEventListener("pointerup", up);
+      setSnapFlash(null);
     };
     target.addEventListener("pointermove", move);
     target.addEventListener("pointerup", up);
@@ -1115,12 +1297,15 @@ export function Studio() {
     const candidates = snapCandidates(surfaces, selected.id);
     const move = (ev: PointerEvent) => {
       let p: Pt = {
-        x: (ev.clientX - rect.left) / rect.width,
-        y: (ev.clientY - rect.top) / rect.height,
+        x: (ev.clientX - rect.left - stageTransform.x) / (rect.width * stageTransform.scale),
+        y: (ev.clientY - rect.top - stageTransform.y) / (rect.height * stageTransform.scale),
       };
       let flash: Pt | null = null;
       if (snap && !ev.shiftKey) {
-        const r = snapPoint(p, candidates, { w: rect.width, h: rect.height });
+        const r = snapPoint(p, candidates, {
+          w: rect.width * stageTransform.scale,
+          h: rect.height * stageTransform.scale,
+        });
         p = r.point;
         flash = r.snapped ? r.target : null;
       }
@@ -1149,6 +1334,25 @@ export function Studio() {
     };
     target.addEventListener("pointermove", move);
     target.addEventListener("pointerup", up);
+  };
+
+  const zoomStageAt = (scale: number, anchorX: number, anchorY: number) => {
+    setStageTransform((current) => {
+      const nextScale = Math.max(1, Math.min(4, scale));
+      const x = anchorX - ((anchorX - current.x) / current.scale) * nextScale;
+      const y = anchorY - ((anchorY - current.y) / current.scale) * nextScale;
+      return {
+        scale: nextScale,
+        x: Math.max(stage.w * (1 - nextScale), Math.min(0, x)),
+        y: Math.max(stage.h * (1 - nextScale), Math.min(0, y)),
+      };
+    });
+  };
+
+  const zoomStageBy = (delta: number) => {
+    const rect = stageRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    zoomStageAt(stageTransform.scale + delta, rect.width / 2, rect.height / 2);
   };
 
   const groups = useMemo(() => {
@@ -1183,7 +1387,6 @@ export function Studio() {
       );
 
       for (const clip of active) {
-        activeTimelineClipRefs.current.set(clip.id, clip);
         const localTime = clip.inPoint + Math.max(0, time - clip.start);
         if (clip.kind === "visual" && clip.mediaId) {
           const element = mediaElements.get(clip.mediaId);
@@ -1213,7 +1416,9 @@ export function Studio() {
         } else if (clip.kind === "movement" && clip.pathId && clip.soundId) {
           const path = soundPaths.find((item) => item.id === clip.pathId);
           if (!path) continue;
-          const position = positionOnPath(path, Math.max(0, time - clip.start));
+          const elapsed = Math.max(0, time - clip.start);
+          const pathTime = clip.loop && path.duration > 0 ? elapsed % path.duration : elapsed;
+          const position = positionOnPath(path, pathTime);
           if (position) {
             engineRef.current?.setPosition(clip.soundId, position);
             // audio gets the exact position every frame; the on-screen marker only needs
@@ -1237,7 +1442,6 @@ export function Studio() {
       }
       for (const clip of timelineClips) {
         if (nextIds.has(clip.id)) continue;
-        activeTimelineClipRefs.current.delete(clip.id);
         if (clip.kind === "audio" && clip.soundId && !activeSoundIds.has(clip.soundId)) {
           engineRef.current?.pauseSound(clip.soundId);
           engineRef.current?.setReverbSend(clip.soundId, 0);
@@ -1252,36 +1456,10 @@ export function Studio() {
     [soundPaths, timelineClips, timelineTracks],
   );
 
-  // A clip can be deleted while playing, in which case applyTimelineAt no longer sees it
-  // in timelineClips. Stop its source explicitly so deleted audio cannot keep running.
-  useEffect(() => {
-    const currentIds = new Set(timelineClips.map((clip) => clip.id));
-    for (const [id, clip] of activeTimelineClipRefs.current) {
-      if (currentIds.has(id)) continue;
-      if (clip.kind === "audio" && clip.soundId) {
-        engineRef.current?.stopSound(clip.soundId);
-        engineRef.current?.setReverbSend(clip.soundId, 0);
-      } else if (clip.kind === "visual" && clip.mediaId) {
-        const element = mediaElements.get(clip.mediaId);
-        if (element instanceof HTMLVideoElement) element.pause();
-      }
-      activeTimelineClips.current.delete(id);
-      activeTimelineClipRefs.current.delete(id);
-    }
-  }, [timelineClips]);
-
   const runShow = () => {
     if (!timelineClips.length) return;
     engine().resume();
-    const end = timelineLength(timelineClips);
-    // Pressing Play at the end should restart from the beginning, not immediately stop again.
-    const startAt = showTimeRef.current >= end - 0.02 ? 0 : showTimeRef.current;
-    if (startAt === 0) {
-      activeTimelineClips.current.clear();
-      setShowTimeNow(0);
-      applyTimelineAt(0, false);
-    }
-    showStart.current = performance.now() - startAt * 1000;
+    showStart.current = performance.now() - showTimeRef.current * 1000;
     setShowPlaying(true);
   };
 
@@ -1290,6 +1468,23 @@ export function Studio() {
     // flush the exact pause position into state (it may lag the ref by a few frames)
     setShowTimeNow(showTimeRef.current);
     applyTimelineAt(showTimeRef.current, false);
+  };
+
+  togglePlaybackRef.current = () => {
+    const editorPreview = stageRef.current?.querySelector<HTMLVideoElement>(
+      "[data-media-editor-preview]",
+    );
+    const soundsPlaying = sounds.some((sound) => sound.playing);
+    const editorPreviewPlaying = !!editorPreview && !editorPreview.paused;
+    if (showPlaying || soundsPlaying || editorPreviewPlaying) {
+      if (soundsPlaying) stopAll();
+      if (showPlaying) pauseShow();
+      editorPreview?.pause();
+    } else {
+      if (sounds.length) playAll();
+      if (timelineClips.length) runShow();
+      if (editorPreview) void editorPreview.play().catch(() => undefined);
+    }
   };
 
   const stopShow = () => {
@@ -1425,8 +1620,11 @@ export function Studio() {
           </p>
         </header>
 
-        <section className="space-y-2">
-          <SectionTitle>Project</SectionTitle>
+        <CollapsibleSection
+          title="Project"
+          className="space-y-2"
+          expandedForView={view === "stage"}
+        >
           <ProjectsMenu
             name={projectName}
             savedAt={savedAt}
@@ -1458,13 +1656,67 @@ export function Studio() {
                 .catch(() => window.alert("That file is not a Prism project."));
             }}
           />
-        </section>
+        </CollapsibleSection>
+
+        <CollapsibleSection
+          title="Timeline"
+          className="sticky top-0 z-30 -mx-4 -mt-5 border-y border-border bg-card/95 px-4 py-2 backdrop-blur"
+          contentClassName="space-y-1.5"
+          expandedForView={view === "timeline"}
+        >
+          <div className="flex items-center gap-1.5">
+            <span className="ml-auto font-mono text-[10px] tabular-nums text-muted-foreground">
+              {formatTime(Math.min(showTime, timelineLength(timelineClips)))} /{" "}
+              {formatTime(timelineLength(timelineClips))}
+            </span>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="size-7"
+              aria-label={showPlaying ? "Pause timeline" : "Play timeline"}
+              title={showPlaying ? "Pause timeline" : "Play timeline"}
+              disabled={!timelineClips.length}
+              onClick={showPlaying ? pauseShow : runShow}
+            >
+              {showPlaying ? <Pause /> : <Play />}
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="size-7"
+              aria-label="Reset timeline"
+              title="Reset timeline"
+              disabled={!timelineClips.length}
+              onClick={stopShow}
+            >
+              <RotateCcw />
+            </Button>
+          </div>
+          <Slider
+            thumbLabel="Timeline position"
+            value={[Math.min(showTime, timelineLength(timelineClips))]}
+            min={0}
+            max={Math.max(0.01, timelineLength(timelineClips))}
+            step={0.01}
+            disabled={!timelineClips.length}
+            onValueChange={([time = 0]) => seekShow(time)}
+          />
+        </CollapsibleSection>
 
         {/* Output */}
-        <section className="space-y-3">
-          <SectionTitle>Output</SectionTitle>
+        <CollapsibleSection
+          title="Output"
+          className="space-y-3"
+          contentClassName="space-y-3"
+          expandedForView={view === "stage"}
+        >
           <div className="flex gap-2">
-            <Button size="sm" className="flex-1" onClick={goFullscreen}>
+            <Button
+              size="sm"
+              className="flex-1"
+              title={fullscreen ? "Exit fullscreen output" : "Show the output fullscreen"}
+              onClick={goFullscreen}
+            >
               {fullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
               {fullscreen ? "Exit" : "Fullscreen"}
             </Button>
@@ -1472,6 +1724,7 @@ export function Studio() {
               size="sm"
               variant={globals.blackout ? "destructive" : "secondary"}
               className="flex-1"
+              title={globals.blackout ? "Restore the output image" : "Black out the output image"}
               onClick={() => setGlobals((g) => ({ ...g, blackout: !g.blackout }))}
             >
               Blackout
@@ -1486,7 +1739,12 @@ export function Studio() {
               )}
               Microphone
             </div>
-            <Switch checked={micOn} onCheckedChange={() => void toggleMic()} />
+            <Switch
+              checked={micOn}
+              onCheckedChange={() => void toggleMic()}
+              aria-label="Toggle microphone input"
+              title="Enable or disable microphone input"
+            />
           </div>
           <LabeledRow
             className="space-y-2"
@@ -1495,6 +1753,7 @@ export function Studio() {
             value={`${Math.round(globals.brightness * 100)}%`}
           >
             <Slider
+              title="Adjust the output brightness"
               value={[globals.brightness]}
               min={0.1}
               max={1.5}
@@ -1502,11 +1761,15 @@ export function Studio() {
               onValueChange={([v = 0]) => setGlobals((g) => ({ ...g, brightness: v }))}
             />
           </LabeledRow>
-        </section>
+        </CollapsibleSection>
 
         {/* Look */}
-        <section className="space-y-3">
-          <SectionTitle>Look</SectionTitle>
+        <CollapsibleSection
+          title="Look"
+          className="space-y-3"
+          contentClassName="space-y-3"
+          expandedForView={view === "stage"}
+        >
           <LabeledRow
             className="space-y-2"
             valueClassName="text-foreground"
@@ -1514,6 +1777,7 @@ export function Studio() {
             value={`${globals.speed.toFixed(2)}x`}
           >
             <Slider
+              title="Set how quickly visuals change"
               value={[globals.speed]}
               min={0}
               max={3}
@@ -1528,6 +1792,7 @@ export function Studio() {
             value={`${Math.round(globals.intensity * 100)}%`}
           >
             <Slider
+              title="Set the visual intensity"
               value={[globals.intensity]}
               min={0}
               max={1}
@@ -1542,6 +1807,7 @@ export function Studio() {
             value={`${Math.round(globals.hue)}°`}
           >
             <Slider
+              title="Shift the visual colour hue"
               value={[globals.hue]}
               min={0}
               max={360}
@@ -1549,15 +1815,19 @@ export function Studio() {
               onValueChange={([v = 0]) => setGlobals((g) => ({ ...g, hue: v }))}
             />
           </LabeledRow>
-        </section>
+        </CollapsibleSection>
 
         {/* Surfaces */}
-        <section className="space-y-2">
-          <div className="flex items-center justify-between">
-            <SectionTitle>Surfaces</SectionTitle>
+        <CollapsibleSection
+          title="Surfaces"
+          className="space-y-2"
+          contentClassName="space-y-2"
+          expandedForView={view === "stage"}
+          action={
             <Button
               size="sm"
               variant="ghost"
+              title="Add a new projection surface"
               onClick={() =>
                 setSurfaces((prev) => {
                   const s = newSurface(prev.length + 1, "visual:plasma");
@@ -1568,18 +1838,74 @@ export function Studio() {
             >
               <Plus className="size-4" /> Add
             </Button>
-          </div>
+          }
+          onDragOver={(event) => {
+            if (!event.dataTransfer.types.includes("text/plain")) return;
+            const rows = Array.from(
+              event.currentTarget.querySelectorAll<HTMLLIElement>("[data-surface-id]"),
+            );
+            const eventTarget = event.target;
+            const rowFromTarget =
+              eventTarget instanceof Element
+                ? eventTarget.closest<HTMLLIElement>("[data-surface-id]")
+                : null;
+            const row =
+              rowFromTarget ??
+              rows.find((item) => {
+                const rect = item.getBoundingClientRect();
+                return event.clientY >= rect.top && event.clientY <= rect.bottom;
+              });
+            const targetId = row?.dataset["surfaceId"];
+            if (!row || !targetId) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "move";
+            const rect = row.getBoundingClientRect();
+            setDropSurface({
+              id: targetId,
+              position: event.clientY < rect.top + rect.height / 2 ? "before" : "after",
+            });
+          }}
+          onDrop={(event) => {
+            event.preventDefault();
+            const sourceId = event.dataTransfer.getData("text/plain") || draggedSurfaceId;
+            if (sourceId && dropSurface)
+              reorderSurface(sourceId, dropSurface.id, dropSurface.position);
+          }}
+        >
           <ul className="space-y-2">
             {surfaces.map((s, idx) => (
               <li
                 key={s.id}
+                data-surface-id={s.id}
                 className={`rounded-lg border p-3 transition-colors ${
-                  selected?.id === s.id
-                    ? "border-primary bg-primary/10"
-                    : "border-border hover:bg-accent"
+                  dropSurface?.id === s.id
+                    ? dropSurface.position === "before"
+                      ? "border-t-2 border-t-primary"
+                      : "border-b-2 border-b-primary"
+                    : selected?.id === s.id
+                      ? "border-primary bg-primary/10"
+                      : "border-border hover:bg-accent"
                 }`}
               >
                 <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    draggable
+                    aria-label={`Reorder ${s.name}`}
+                    title="Drag to change surface priority"
+                    className="shrink-0 cursor-grab touch-none text-muted-foreground active:cursor-grabbing"
+                    onDragStart={(event) => {
+                      event.dataTransfer.effectAllowed = "move";
+                      event.dataTransfer.setData("text/plain", s.id);
+                      setDraggedSurfaceId(s.id);
+                    }}
+                    onDragEnd={() => {
+                      setDraggedSurfaceId(null);
+                      setDropSurface(null);
+                    }}
+                  >
+                    <GripVertical className="size-4" />
+                  </button>
                   <span className="grid size-5 shrink-0 place-items-center rounded bg-muted text-[10px] font-semibold tabular-nums">
                     {idx + 1}
                   </span>
@@ -1591,6 +1917,7 @@ export function Studio() {
                   </button>
                   <button
                     aria-label={s.visible ? "Hide surface" : "Show surface"}
+                    title={s.visible ? "Hide this surface" : "Show this surface"}
                     onClick={() => patch(s.id, { visible: !s.visible })}
                     className="text-muted-foreground hover:text-foreground"
                   >
@@ -1598,6 +1925,7 @@ export function Studio() {
                   </button>
                   <button
                     aria-label="Delete surface"
+                    title={`Delete ${s.name}`}
                     onClick={() => setSurfaces((prev) => prev.filter((x) => x.id !== s.id))}
                     className="text-muted-foreground hover:text-destructive"
                   >
@@ -1638,12 +1966,33 @@ export function Studio() {
                       <Button
                         size="sm"
                         variant={s.fit === "cover" ? "default" : "secondary"}
-                        className="flex-1"
+                        className="min-w-0 flex-1 px-2"
                         onClick={() =>
                           patch(s.id, { fit: s.fit === "cover" ? "stretch" : "cover" })
                         }
                       >
                         {s.fit === "cover" ? "Fill" : "Stretch"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="min-w-0 flex-1 px-2 text-[11px]"
+                        onClick={() => {
+                          const projector =
+                            outputs.find((output) => output.id === s.outputId) ?? outputs[0];
+                          if (!projector) return;
+                          const { x, y, w, h } = projector.region;
+                          patch(s.id, {
+                            corners: [
+                              { x, y },
+                              { x: x + w, y },
+                              { x: x + w, y: y + h },
+                              { x, y: y + h },
+                            ],
+                          });
+                        }}
+                      >
+                        Fit to projector
                       </Button>
                       <Button
                         size="sm"
@@ -1798,20 +2147,27 @@ export function Studio() {
               </li>
             ))}
           </ul>
-        </section>
+        </CollapsibleSection>
 
         {/* Sources */}
-        <section className="space-y-2 pb-4">
-          <SectionTitle>Source for {selected?.name ?? "surface"}</SectionTitle>
-          <Tabs defaultValue="visuals">
+        <CollapsibleSection
+          title={`Source for ${selected?.name ?? "surface"}`}
+          className="space-y-2 pb-4"
+          expandedForView={view !== "timeline"}
+        >
+          <Tabs value={sourceTab} onValueChange={setSourceTab}>
             <TabsList className="w-full">
-              <TabsTrigger value="visuals" className="flex-1">
+              <TabsTrigger
+                value="visuals"
+                className="flex-1"
+                title="Choose a built-in visual source"
+              >
                 Visuals
               </TabsTrigger>
-              <TabsTrigger value="media" className="flex-1">
+              <TabsTrigger value="media" className="flex-1" title="Choose or edit imported media">
                 My media
               </TabsTrigger>
-              <TabsTrigger value="sound" className="flex-1">
+              <TabsTrigger value="sound" className="flex-1" title="Manage sounds and room audio">
                 Sound
               </TabsTrigger>
             </TabsList>
@@ -1946,9 +2302,141 @@ export function Studio() {
                     .catch(() => undefined);
                 }}
               />
+              <CollapsibleSection
+                title="Movement paths"
+                className="mt-4 border-t border-border pt-3"
+                contentClassName="mt-2 space-y-2"
+                expandedForView={view === "room" || view === "timeline"}
+              >
+                <div className="flex items-center gap-2 text-xs">
+                  <label htmlFor="default-path-length" className="flex-1 text-muted-foreground">
+                    Default point length
+                  </label>
+                  <Input
+                    id="default-path-length"
+                    aria-label="Default point length in milliseconds"
+                    type="number"
+                    min={0}
+                    step={50}
+                    className="h-7 w-20 px-2 text-xs"
+                    title="Default duration for newly created path segments"
+                    value={defaultPathLengthMs}
+                    onChange={(event) => {
+                      const length = Math.max(0, Number(event.target.value) || 0);
+                      setDefaultPathLengthMs(length);
+                      window.localStorage.setItem(DEFAULT_PATH_LENGTH_KEY, String(length));
+                    }}
+                  />
+                  <span className="text-muted-foreground">ms</span>
+                </div>
+                {soundPaths.length ? (
+                  <ul className="space-y-2">
+                    {soundPaths.map((path) => {
+                      const pathSound = sounds.find((sound) => sound.id === path.soundId);
+                      const active = path.id === activePathId;
+                      return (
+                        <li
+                          key={path.id}
+                          className={`rounded-md border p-2 ${active ? "border-primary bg-primary/10" : "border-border"}`}
+                        >
+                          <div className="flex items-start gap-1">
+                            <button
+                              className="min-w-0 flex-1 text-left"
+                              onClick={() => {
+                                setSelectedSoundId(path.soundId);
+                                setActivePathId(path.id);
+                              }}
+                            >
+                              <span className="block truncate text-xs font-medium">
+                                {pathSound?.name ?? path.name}
+                              </span>
+                              <span className="block text-[10px] text-muted-foreground">
+                                {path.nodes.length} points · {path.duration.toFixed(2)}s
+                              </span>
+                            </button>
+                          </div>
+                          <div className="mt-2 border-t border-border pt-2">
+                            <div className="mb-1 flex items-center justify-between">
+                              <span className="text-[10px] text-muted-foreground">
+                                Point lengths
+                              </span>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="size-6 text-muted-foreground hover:text-destructive"
+                                aria-label={`Delete ${pathSound?.name ?? path.name} path`}
+                                title={`Delete ${pathSound?.name ?? path.name} path`}
+                                onClick={() => deletePath(path.id)}
+                              >
+                                <Trash2 className="size-3.5" />
+                              </Button>
+                            </div>
+                            {path.segments.length > 0 ? (
+                              <ul className="space-y-1">
+                                {path.segments.map((segment) => {
+                                  const fromIndex = path.nodes.findIndex(
+                                    (node) => node.id === segment.fromId,
+                                  );
+                                  const toIndex = path.nodes.findIndex(
+                                    (node) => node.id === segment.toId,
+                                  );
+                                  return (
+                                    <li
+                                      key={segment.id}
+                                      className="flex items-center gap-1.5 text-[10px] text-muted-foreground"
+                                    >
+                                      <label
+                                        htmlFor={`path-length-${segment.id}`}
+                                        className="shrink-0"
+                                      >
+                                        Point {fromIndex + 1} → {toIndex + 1}
+                                      </label>
+                                      <Input
+                                        id={`path-length-${segment.id}`}
+                                        aria-label={`Length from point ${fromIndex + 1} to point ${toIndex + 1}`}
+                                        type="number"
+                                        min={0}
+                                        step={50}
+                                        className="h-6 min-w-0 px-1.5 text-xs"
+                                        title={`Set the duration from point ${fromIndex + 1} to point ${toIndex + 1}`}
+                                        value={Math.round(segment.durationMs)}
+                                        onChange={(event) =>
+                                          saveSoundPath(
+                                            withDuration(
+                                              patchSegment(path, segment.id, {
+                                                durationMs: Math.max(
+                                                  0,
+                                                  Number(event.target.value) || 0,
+                                                ),
+                                              }),
+                                            ),
+                                          )
+                                        }
+                                      />
+                                      <span>ms</span>
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            ) : (
+                              <p className="text-[10px] text-muted-foreground">
+                                Add another point to set a movement length.
+                              </p>
+                            )}
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    No movement paths yet. Select a sound and add points in the Room view.
+                  </p>
+                )}
+              </CollapsibleSection>
             </TabsContent>
           </Tabs>
-        </section>
+        </CollapsibleSection>
       </aside>
 
       {!fullscreen && (
@@ -1992,6 +2480,10 @@ export function Studio() {
             onView={setView}
             onPair={startPairing}
             paired={remoteConnected}
+            zoom={stageTransform.scale}
+            onZoomIn={() => zoomStageBy(0.25)}
+            onZoomOut={() => zoomStageBy(-0.25)}
+            onZoomReset={() => setStageTransform({ scale: 1, x: 0, y: 0 })}
           />
         )}
         {pairCode && !fullscreen && (
@@ -2002,279 +2494,364 @@ export function Studio() {
             onStop={startPairing}
           />
         )}
-        <div className="relative min-h-0 flex-1 bg-black" ref={stageRef}>
-          {displaySurfaces.map((s, i) => (
-            <SurfaceLayer
-              key={s.id}
-              surface={s}
-              index={i}
-              stage={stage}
-              globals={
-                view !== "stage" && !fullscreen
-                  ? { ...globals, brightness: globals.brightness * 0.35 }
-                  : globals
-              }
-              testPattern={testPattern}
-              levels={levels}
-            />
-          ))}
-          {view === "room" && !fullscreen && (
-            <RoomView
-              stage={stage}
-              sounds={displaySounds}
-              selectedId={selectedSoundId}
-              room={room}
-              paths={soundPaths}
-              activePathId={activePathId}
-              onSelect={setSelectedSoundId}
-              onMoveSound={(id, position) => patchSound(id, { position })}
-              onMoveListener={(listener) => patchRoom({ listener })}
-              onMoveSpeaker={(id, position) =>
-                patchRoom({
-                  speakers: room.speakers.map((sp) => (sp.id === id ? { ...sp, position } : sp)),
-                })
-              }
-              onSavePath={(path) =>
-                setSoundPaths((prev) =>
-                  prev.some((item) => item.id === path.id)
-                    ? prev.map((item) => (item.id === path.id ? path : item))
-                    : [...prev, path],
-                )
-              }
-              onDeletePath={(id) => {
-                setSoundPaths((prev) => prev.filter((path) => path.id !== id));
-                setTimelineClips((prev) => prev.filter((clip) => clip.pathId !== id));
-                setActivePathId(null);
-              }}
-              onSelectPath={setActivePathId}
-            />
-          )}
-          {view === "editor" && !fullscreen && (
-            <MediaEditor
-              media={media}
-              item={media.find((m) => m.id === editMediaId) ?? media[0] ?? null}
-              sounds={sounds}
-              onSelect={setEditMediaId}
-              onPatch={patchMedia}
-              onSaveClip={(id, crop, inS, outS) => {
-                const from = media.find((m) => m.id === id);
-                if (!from) return;
-                saveClip(
-                  from,
-                  { crop, trimStart: inS, trimEnd: outS },
-                  `${from.name} clip ${inS.toFixed(1)}-${outS.toFixed(1)}s`,
-                );
-              }}
-              onDelete={removeMedia}
-            />
-          )}
-          {view === "effects" && !fullscreen && (
-            <div className="absolute inset-0 z-30 min-w-0 overflow-y-auto bg-background p-4 lg:p-6">
-              <div className="mx-auto w-full max-w-[72rem]">
-                <AudioEffectsPanel
-                  reverb={reverb}
-                  onReverb={(next) => setReverb((prev) => ({ ...prev, ...next }))}
-                  clips={timelineClips}
-                  sounds={sounds}
-                  room={room}
-                  onClips={setTimelineClips}
-                />
-              </div>
-            </div>
-          )}
-          {view === "timeline" && !fullscreen && (
-            <div className="absolute inset-0 z-30 min-w-0 overflow-y-auto bg-background p-4 lg:p-6">
-              <div className="mx-auto w-full max-w-[96rem]">
-                {saveError && (
-                  <p
-                    role="alert"
-                    className="mb-3 rounded border border-destructive/60 p-2 text-xs text-destructive"
-                  >
-                    {saveError}
-                  </p>
-                )}
-                <ShowPanel
-                  tracks={timelineTracks}
-                  clips={timelineClips}
-                  media={media}
-                  sounds={sounds}
-                  paths={soundPaths}
-                  surfaces={surfaces}
-                  outputs={outputs}
-                  openOutputs={openOutputs}
-                  playing={showPlaying}
-                  time={showTime}
-                  zoom={timelineZoom}
-                  selectedClipId={selectedClipId}
-                  onTracks={setTimelineTracks}
-                  onClips={setTimelineClips}
-                  onSelectClip={setSelectedClipId}
-                  onPlay={runShow}
-                  onPause={pauseShow}
-                  onStop={stopShow}
-                  onSeek={seekShow}
-                  onZoom={setTimelineZoom}
-                  onAddOutput={() =>
-                    setOutputs((prev) => [
-                      ...prev,
-                      {
-                        id: `out${prev.length + 1}`,
-                        name: `Projector ${prev.length + 1}`,
-                        region: defaultRegion(),
-                        blend: defaultBlend(),
-                      },
-                    ])
+        <div
+          className="relative min-h-0 flex-1 overflow-hidden bg-black"
+          ref={stageRef}
+          onPointerDownCapture={(e) => {
+            if (view !== "stage" || fullscreen || e.button !== 1) return;
+            e.preventDefault();
+            e.stopPropagation();
+            stagePanRef.current = {
+              pointerId: e.pointerId,
+              startX: e.clientX,
+              startY: e.clientY,
+              offsetX: stageTransform.x,
+              offsetY: stageTransform.y,
+              scale: stageTransform.scale,
+            };
+            e.currentTarget.setPointerCapture(e.pointerId);
+          }}
+          onPointerMove={(e) => {
+            const pan = stagePanRef.current;
+            if (!pan || pan.pointerId !== e.pointerId) return;
+            e.preventDefault();
+            setStageTransform((current) => ({
+              ...current,
+              x: Math.max(
+                stage.w * (1 - pan.scale),
+                Math.min(0, pan.offsetX + e.clientX - pan.startX),
+              ),
+              y: Math.max(
+                stage.h * (1 - pan.scale),
+                Math.min(0, pan.offsetY + e.clientY - pan.startY),
+              ),
+            }));
+          }}
+          onPointerUp={(e) => {
+            if (stagePanRef.current?.pointerId === e.pointerId) stagePanRef.current = null;
+          }}
+          onPointerCancel={(e) => {
+            if (stagePanRef.current?.pointerId === e.pointerId) stagePanRef.current = null;
+          }}
+        >
+          <div
+            className="absolute inset-0"
+            style={
+              view === "stage" && !fullscreen
+                ? {
+                    transform: `translate(${stageTransform.x}px, ${stageTransform.y}px) scale(${stageTransform.scale})`,
+                    transformOrigin: "top left",
                   }
-                  onRemoveOutput={(id) => {
-                    setOutputs((prev) => prev.filter((output) => output.id !== id));
-                    setSurfaces((prev) =>
-                      prev.map((surface) =>
-                        surface.outputId === id ? { ...surface, outputId: "out1" } : surface,
-                      ),
-                    );
-                  }}
-                  onPatchOutput={(id, next) =>
-                    setOutputs((prev) =>
-                      prev.map((output) => (output.id === id ? { ...output, ...next } : output)),
-                    )
-                  }
-                  onSplitOutputs={(overlap) =>
-                    setOutputs((prev) => splitOutputsEvenly(prev, overlap))
-                  }
-                  onOpenOutput={openOutput}
-                  onPatchPath={(path) =>
-                    setSoundPaths((prev) =>
-                      prev.some((item) => item.id === path.id)
-                        ? prev.map((item) => (item.id === path.id ? path : item))
-                        : [...prev, path],
-                    )
-                  }
-                />
-              </div>
-            </div>
-          )}
-          {!fullscreen && view === "stage" && (
-            <svg className="pointer-events-none absolute inset-0 size-full">
-              {outputs.length > 1 &&
-                outputs.map((output, i) => (
-                  <g key={`region-${output.id}`}>
-                    <rect
-                      x={output.region.x * stage.w}
-                      y={output.region.y * stage.h}
-                      width={output.region.w * stage.w}
-                      height={output.region.h * stage.h}
-                      className="fill-none stroke-chart-2/60"
-                      strokeDasharray="8 6"
-                    />
-                    <text
-                      x={output.region.x * stage.w + 6}
-                      y={output.region.y * stage.h + 14}
-                      className="fill-chart-2/80 text-[10px]"
-                    >
-                      {output.name || `Projector ${i + 1}`}
-                    </text>
-                  </g>
-                ))}
-              {surfaces
-                .filter((s) => s.visible)
-                .map((s) => (
-                  <polygon
-                    key={s.id}
-                    points={outlineStagePoints(s.corners, s.outline)
-                      .map((c) => `${c.x * stage.w},${c.y * stage.h}`)
-                      .join(" ")}
-                    onPointerDown={() => setSelectedId(s.id)}
-                    className={`pointer-events-auto cursor-pointer stroke-primary/70 ${
-                      s.id === selected?.id
-                        ? "fill-transparent"
-                        : "fill-transparent hover:fill-primary/10"
-                    }`}
-                    strokeWidth={s.id === selected?.id ? 2 : 0}
+                : undefined
+            }
+          >
+            {[...displaySurfaces].reverse().map((s) => (
+              <SurfaceLayer
+                key={s.id}
+                surface={s}
+                index={surfaces.findIndex((surface) => surface.id === s.id)}
+                stage={stage}
+                globals={
+                  view !== "stage" && !fullscreen
+                    ? { ...globals, brightness: globals.brightness * 0.35 }
+                    : globals
+                }
+                testPattern={testPattern}
+                levels={levels}
+              />
+            ))}
+            {view === "room" && !fullscreen && (
+              <RoomView
+                stage={stage}
+                sounds={displaySounds}
+                selectedId={selectedSoundId}
+                room={room}
+                paths={soundPaths}
+                activePathId={activePathId}
+                defaultPathLengthMs={defaultPathLengthMs}
+                onSelect={setSelectedSoundId}
+                onMoveSound={(id, position) => patchSound(id, { position })}
+                onMoveListener={(listener) => patchRoom({ listener })}
+                onMoveSpeaker={(id, position) =>
+                  patchRoom({
+                    speakers: room.speakers.map((sp) => (sp.id === id ? { ...sp, position } : sp)),
+                  })
+                }
+                onSavePath={saveSoundPath}
+                onDeletePath={deletePath}
+                onSelectPath={setActivePathId}
+              />
+            )}
+            {view === "editor" && !fullscreen && (
+              <MediaEditor
+                media={media}
+                item={media.find((m) => m.id === editMediaId) ?? media[0] ?? null}
+                sounds={sounds}
+                onSelect={setEditMediaId}
+                onPatch={patchMedia}
+                onSaveClip={(id, crop, inS, outS) => {
+                  const from = media.find((m) => m.id === id);
+                  if (!from) return;
+                  saveClip(
+                    from,
+                    { crop, trimStart: inS, trimEnd: outS },
+                    `${from.name} clip ${inS.toFixed(1)}-${outS.toFixed(1)}s`,
+                  );
+                }}
+                onDelete={removeMedia}
+              />
+            )}
+            {view === "effects" && !fullscreen && (
+              <div className="absolute inset-0 z-30 min-w-0 overflow-y-auto bg-background p-4 lg:p-6">
+                <div className="mx-auto w-full max-w-[72rem]">
+                  <AudioEffectsPanel
+                    reverb={reverb}
+                    onReverb={(next) => setReverb((prev) => ({ ...prev, ...next }))}
+                    clips={timelineClips}
+                    sounds={sounds}
+                    room={room}
+                    onClips={setTimelineClips}
                   />
-                ))}
-            </svg>
-          )}
-          {mapping && !fullscreen && view === "stage" && (
-            <>
-              {surfaces
-                .filter((s) => s.id !== selected?.id && s.visible)
-                .map((s) => (
-                  <svg key={s.id} className="pointer-events-none absolute inset-0 size-full">
+                </div>
+              </div>
+            )}
+            {view === "timeline" && !fullscreen && (
+              <div className="absolute inset-0 z-30 min-w-0 overflow-y-auto bg-background p-4 lg:p-6">
+                <div className="mx-auto w-full max-w-[96rem]">
+                  {saveError && (
+                    <p
+                      role="alert"
+                      className="mb-3 rounded border border-destructive/60 p-2 text-xs text-destructive"
+                    >
+                      {saveError}
+                    </p>
+                  )}
+                  <ShowPanel
+                    tracks={timelineTracks}
+                    clips={timelineClips}
+                    media={media}
+                    sounds={sounds}
+                    paths={soundPaths}
+                    surfaces={surfaces}
+                    outputs={outputs}
+                    openOutputs={openOutputs}
+                    playing={showPlaying}
+                    time={showTime}
+                    zoom={timelineZoom}
+                    selectedClipId={selectedClipId}
+                    onTracks={setTimelineTracks}
+                    onClips={setTimelineClips}
+                    onSelectClip={setSelectedClipId}
+                    onPlay={runShow}
+                    onPause={pauseShow}
+                    onStop={stopShow}
+                    onSeek={seekShow}
+                    onZoom={setTimelineZoom}
+                    onAddOutput={() =>
+                      setOutputs((prev) => [
+                        ...prev,
+                        {
+                          id: `out${prev.length + 1}`,
+                          name: `Projector ${prev.length + 1}`,
+                          region: defaultRegion(),
+                          blend: defaultBlend(),
+                        },
+                      ])
+                    }
+                    onRemoveOutput={(id) => {
+                      setOutputs((prev) => prev.filter((output) => output.id !== id));
+                      setSurfaces((prev) =>
+                        prev.map((surface) =>
+                          surface.outputId === id ? { ...surface, outputId: "out1" } : surface,
+                        ),
+                      );
+                    }}
+                    onPatchOutput={(id, next) =>
+                      setOutputs((prev) =>
+                        prev.map((output) => (output.id === id ? { ...output, ...next } : output)),
+                      )
+                    }
+                    onSplitOutputs={(overlap) =>
+                      setOutputs((prev) => splitOutputsEvenly(prev, overlap))
+                    }
+                    onOpenOutput={openOutput}
+                    onPatchPath={(path) =>
+                      setSoundPaths((prev) =>
+                        prev.some((item) => item.id === path.id)
+                          ? prev.map((item) => (item.id === path.id ? path : item))
+                          : [...prev, path],
+                      )
+                    }
+                  />
+                </div>
+              </div>
+            )}
+            {!fullscreen && view === "stage" && (
+              <svg className="pointer-events-none absolute inset-0 size-full">
+                {outputs.length > 1 &&
+                  outputs.map((output, i) => (
+                    <g key={`region-${output.id}`}>
+                      <rect
+                        x={output.region.x * stage.w}
+                        y={output.region.y * stage.h}
+                        width={output.region.w * stage.w}
+                        height={output.region.h * stage.h}
+                        className="fill-none stroke-chart-2/60"
+                        strokeDasharray="8 6"
+                      />
+                      <text
+                        x={output.region.x * stage.w + 6}
+                        y={output.region.y * stage.h + 14}
+                        className="fill-chart-2/80 text-[10px]"
+                      >
+                        {output.name || `Projector ${i + 1}`}
+                      </text>
+                    </g>
+                  ))}
+                {[...surfaces]
+                  .reverse()
+                  .filter((s) => s.visible)
+                  .map((s) => (
                     <polygon
+                      key={s.id}
                       points={outlineStagePoints(s.corners, s.outline)
                         .map((c) => `${c.x * stage.w},${c.y * stage.h}`)
                         .join(" ")}
-                      className="fill-none stroke-muted-foreground/40"
-                      strokeDasharray="4 4"
+                      onPointerDown={dragSurface(s)}
+                      className={`pointer-events-auto ${mapping ? "cursor-move" : "cursor-pointer"} stroke-primary/70 ${
+                        s.id === selected?.id
+                          ? "fill-transparent"
+                          : "fill-transparent hover:fill-primary/10"
+                      }`}
+                      strokeWidth={s.id === selected?.id ? 2 : 0}
                     />
+                  ))}
+              </svg>
+            )}
+            {mapping && !fullscreen && view === "stage" && (
+              <>
+                {surfaces
+                  .filter((s) => s.id !== selected?.id && s.visible)
+                  .map((s) => (
+                    <svg key={s.id} className="pointer-events-none absolute inset-0 size-full">
+                      <polygon
+                        points={outlineStagePoints(s.corners, s.outline)
+                          .map((c) => `${c.x * stage.w},${c.y * stage.h}`)
+                          .join(" ")}
+                        className="fill-none stroke-muted-foreground/40"
+                        strokeDasharray="4 4"
+                      />
+                    </svg>
+                  ))}
+                {selected && (
+                  <svg className="pointer-events-none absolute inset-0 z-[5] size-full">
+                    {(() => {
+                      const pts = outlineStagePoints(selected.corners, selected.outline);
+                      return pts.map((a, i) => {
+                        const b = pts[(i + 1) % pts.length]!;
+                        return (
+                          <line
+                            key={i}
+                            x1={a.x * stage.w}
+                            y1={a.y * stage.h}
+                            x2={b.x * stage.w}
+                            y2={b.y * stage.h}
+                            onPointerDown={addEdgePoint(i)}
+                            strokeWidth={12}
+                            className="pointer-events-auto cursor-copy stroke-transparent hover:stroke-primary/30"
+                          >
+                            <title>Click to add a point here</title>
+                          </line>
+                        );
+                      });
+                    })()}
                   </svg>
-                ))}
-              {selected && (
-                <svg className="pointer-events-none absolute inset-0 z-[5] size-full">
-                  {(() => {
-                    const pts = outlineStagePoints(selected.corners, selected.outline);
-                    return pts.map((a, i) => {
-                      const b = pts[(i + 1) % pts.length]!;
-                      return (
-                        <line
-                          key={i}
-                          x1={a.x * stage.w}
-                          y1={a.y * stage.h}
-                          x2={b.x * stage.w}
-                          y2={b.y * stage.h}
-                          onPointerDown={addEdgePoint(i)}
-                          strokeWidth={12}
-                          className="pointer-events-auto cursor-copy stroke-transparent hover:stroke-primary/30"
-                        >
-                          <title>Click to add a point here</title>
-                        </line>
-                      );
-                    });
-                  })()}
-                </svg>
-              )}
-              {selected?.outline &&
-                selected.outline.length > 4 &&
-                outlineStagePoints(selected.corners, selected.outline).map((c, i) =>
-                  selected.outline![i]!.c !== undefined ? null : (
-                    <div
-                      key={`op-${i}`}
-                      onPointerDown={dragOutlinePoint(i)}
-                      onContextMenu={removeOutlinePoint(i)}
-                      title="Drag to move · right-click to remove"
-                      className="absolute z-10 size-3.5 -translate-x-1/2 -translate-y-1/2 cursor-grab touch-none rounded-full border-2 border-primary bg-background active:cursor-grabbing"
-                      style={{ left: c.x * stage.w, top: c.y * stage.h }}
-                    />
-                  ),
                 )}
-              {selected?.corners.map((c, i) => (
-                <div
-                  key={i}
-                  onPointerDown={dragCorner(i)}
-                  className="absolute z-10 grid size-6 -translate-x-1/2 -translate-y-1/2 cursor-grab touch-none place-items-center rounded-full border-2 border-primary bg-primary/30 text-[9px] font-bold text-foreground active:cursor-grabbing"
-                  style={{ left: c.x * stage.w, top: c.y * stage.h }}
-                >
-                  {i + 1}
-                </div>
-              ))}
-              {snapFlash && (
-                <div
-                  className="pointer-events-none absolute z-20 size-9 -translate-x-1/2 -translate-y-1/2 animate-ping rounded-full border-2 border-primary"
-                  style={{ left: snapFlash.x * stage.w, top: snapFlash.y * stage.h }}
-                />
-              )}
-            </>
-          )}
+                {selected?.outline &&
+                  selected.outline.length > 4 &&
+                  outlineStagePoints(selected.corners, selected.outline).map((c, i) =>
+                    selected.outline![i]!.c !== undefined ? null : (
+                      <div
+                        key={`op-${i}`}
+                        onPointerDown={dragOutlinePoint(i)}
+                        onContextMenu={removeOutlinePoint(i)}
+                        title="Drag to move · right-click to remove"
+                        className="absolute z-10 size-3.5 -translate-x-1/2 -translate-y-1/2 cursor-grab touch-none rounded-full border-2 border-primary bg-background active:cursor-grabbing"
+                        style={{ left: c.x * stage.w, top: c.y * stage.h }}
+                      />
+                    ),
+                  )}
+                {selected?.corners.map((c, i) => (
+                  <div
+                    key={i}
+                    onPointerDown={dragCorner(i)}
+                    className="absolute z-10 grid size-6 -translate-x-1/2 -translate-y-1/2 cursor-grab touch-none place-items-center rounded-full border-2 border-primary bg-primary/30 text-[9px] font-bold text-foreground active:cursor-grabbing"
+                    style={{ left: c.x * stage.w, top: c.y * stage.h }}
+                  >
+                    {i + 1}
+                  </div>
+                ))}
+                {snapFlash && (
+                  <div
+                    className="pointer-events-none absolute z-20 size-9 -translate-x-1/2 -translate-y-1/2 animate-ping rounded-full border-2 border-primary"
+                    style={{ left: snapFlash.x * stage.w, top: snapFlash.y * stage.h }}
+                  />
+                )}
+              </>
+            )}
+          </div>
         </div>
       </main>
     </div>
   );
 }
 
-function SectionTitle({ children }: { children: ReactNode }) {
+function CollapsibleSection({
+  title,
+  children,
+  className,
+  contentClassName,
+  action,
+  onDragOver,
+  onDrop,
+  expandedForView,
+}: {
+  title: ReactNode;
+  children: ReactNode;
+  className?: string;
+  contentClassName?: string;
+  action?: ReactNode;
+  onDragOver?: DragEventHandler<HTMLElement>;
+  onDrop?: DragEventHandler<HTMLElement>;
+  expandedForView?: boolean;
+}) {
+  const [open, setOpen] = useState(expandedForView ?? true);
+  const viewExpanded = expandedForView ?? true;
+
+  useEffect(() => {
+    setOpen(viewExpanded);
+  }, [viewExpanded]);
+
   return (
-    <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-      {children}
-    </h2>
+    <section className={className} onDragOver={onDragOver} onDrop={onDrop}>
+      <div className="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          aria-expanded={open}
+          title={`${open ? "Collapse" : "Expand"} ${typeof title === "string" ? title : "menu section"}`}
+          onClick={() => setOpen((current) => !current)}
+          className="flex min-w-0 flex-1 items-center gap-1.5 rounded text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        >
+          <ChevronDown
+            className={`size-3.5 shrink-0 transition-transform ${open ? "" : "-rotate-90"}`}
+          />
+          <span className="truncate">{title}</span>
+        </button>
+        {action}
+      </div>
+      <div className={contentClassName} hidden={!open}>
+        {children}
+      </div>
+    </section>
   );
 }

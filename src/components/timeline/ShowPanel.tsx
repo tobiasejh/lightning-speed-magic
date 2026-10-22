@@ -6,6 +6,7 @@ import {
   Pause,
   Play,
   Plus,
+  Repeat,
   Ruler,
   Square,
   Trash2,
@@ -100,6 +101,7 @@ export function ShowPanel(p: Props) {
     return null;
   };
   const maxDuration = (clip: TimelineClip, inPoint = clip.inPoint) => {
+    if (clip.kind === "movement") return Infinity;
     const total = sourceLength(clip);
     return total === null ? Infinity : Math.max(0.25, total - inPoint);
   };
@@ -228,11 +230,22 @@ export function ShowPanel(p: Props) {
   return (
     <div className="min-w-0 space-y-3">
       <div className="flex flex-wrap items-center gap-1.5">
-        <Button size="sm" onClick={p.playing ? p.onPause : p.onPlay} disabled={!p.clips.length}>
+        <Button
+          size="sm"
+          title={p.playing ? "Pause show playback" : "Play show from the current time"}
+          onClick={p.playing ? p.onPause : p.onPlay}
+          disabled={!p.clips.length}
+        >
           {p.playing ? <Pause /> : <Play />}
           {p.playing ? "Pause" : "Play"}
         </Button>
-        <Button size="icon" variant="secondary" onClick={p.onStop} aria-label="Stop timeline">
+        <Button
+          size="icon"
+          variant="secondary"
+          onClick={p.onStop}
+          aria-label="Stop timeline"
+          title="Stop playback and return to the beginning"
+        >
           <Square />
         </Button>
         <span className="min-w-12 font-mono text-xs tabular-nums">{formatTime(p.time)}</span>
@@ -241,6 +254,7 @@ export function ShowPanel(p: Props) {
           variant="ghost"
           onClick={() => p.onZoom(Math.max(0.5, p.zoom - 0.25))}
           aria-label="Zoom timeline out"
+          title="Zoom timeline out"
         >
           <ZoomOut />
         </Button>
@@ -249,6 +263,7 @@ export function ShowPanel(p: Props) {
           variant="ghost"
           onClick={() => p.onZoom(Math.min(3, p.zoom + 0.25))}
           aria-label="Zoom timeline in"
+          title="Zoom timeline in"
         >
           <ZoomIn />
         </Button>
@@ -276,6 +291,7 @@ export function ShowPanel(p: Props) {
           <div className="w-28 shrink-0 border-r border-border bg-card/80" />
           <button
             className="relative h-7 flex-1 cursor-col-resize border-b border-border"
+            title="Click or drag to move the timeline playhead"
             onPointerDown={(event) => {
               const rect = event.currentTarget.getBoundingClientRect();
               p.onSeek((event.clientX - rect.left) / pixelsPerSecond);
@@ -305,6 +321,7 @@ export function ShowPanel(p: Props) {
                   className="size-6"
                   onClick={() => patchTrack(track.id, { muted: !track.muted })}
                   aria-label={`Mute ${track.name}`}
+                  title={track.muted ? `Unmute ${track.name}` : `Mute ${track.name}`}
                 >
                   {track.muted ? <VolumeX /> : <Volume2 />}
                 </Button>
@@ -312,6 +329,7 @@ export function ShowPanel(p: Props) {
                   size="icon"
                   variant={track.solo ? "default" : "ghost"}
                   className="size-6 text-[9px]"
+                  title={track.solo ? `Unsolo ${track.name}` : `Solo ${track.name}`}
                   onClick={() => patchTrack(track.id, { solo: !track.solo })}
                 >
                   S
@@ -319,10 +337,7 @@ export function ShowPanel(p: Props) {
               </div>
               <div
                 className="relative flex-1 bg-muted/20"
-                onDoubleClick={(event) => {
-                  // A double-click on an existing clip must not bubble to the empty-track
-                  // handler and create an unexpected extra clip.
-                  if ((event.target as HTMLElement).closest("[data-timeline-clip]")) return;
+                onDoubleClick={() => {
                   const items = sources(track.kind);
                   const first = items[0];
                   if (first) addClip(track, first.id);
@@ -333,6 +348,7 @@ export function ShowPanel(p: Props) {
                   .map((clip) => (
                     <div
                       key={clip.id}
+                      title="Click to select, drag to move, drag an edge to trim, right-click to delete"
                       onPointerDown={dragClip(clip)}
                       onClick={(event) => {
                         event.stopPropagation();
@@ -344,7 +360,6 @@ export function ShowPanel(p: Props) {
                         p.onClips(p.clips.filter((item) => item.id !== clip.id));
                         if (p.selectedClipId === clip.id) p.onSelectClip(null);
                       }}
-                      data-timeline-clip
                       className={`absolute top-1 h-10 min-w-8 cursor-grab overflow-hidden rounded border px-2 py-1 text-[10px] shadow ${colors[clip.kind]} ${p.selectedClipId === clip.id ? "border-foreground ring-1 ring-foreground" : "border-border"}`}
                       style={{
                         left: clip.start * pixelsPerSecond,
@@ -454,6 +469,7 @@ export function ShowPanel(p: Props) {
                   <Button
                     size="sm"
                     variant="secondary"
+                    title="Extend the clip to the full remaining source length"
                     onClick={() => patchClip(clip.id, { duration: maxDuration(clip) })}
                   >
                     <Ruler />
@@ -464,13 +480,40 @@ export function ShowPanel(p: Props) {
                   <>
                     <Button
                       size="sm"
+                      variant={clip.loop ? "default" : "secondary"}
+                      aria-pressed={clip.loop ?? false}
+                      title={
+                        clip.loop
+                          ? "Disable looping for this movement clip"
+                          : "Repeat the movement path until this clip ends"
+                      }
+                      onClick={() =>
+                        patchClip(clip.id, {
+                          loop: !clip.loop,
+                          ...(!clip.loop && movementPath.duration > 0
+                            ? { duration: Math.max(clip.duration, movementPath.duration * 3) }
+                            : {}),
+                        })
+                      }
+                    >
+                      <Repeat />
+                      {clip.loop ? "Loop on" : "Loop"}
+                    </Button>
+                    <Button
+                      size="sm"
                       variant={showLanes ? "default" : "secondary"}
+                      title="Show or hide the movement automation lanes"
                       onClick={() => setShowLanes(!showLanes)}
                     >
                       <Activity />
                       Automation
                     </Button>
-                    <Button size="sm" variant="secondary" onClick={() => setBigLaneClipId(clip.id)}>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      title="Open the full movement curve editor"
+                      onClick={() => setBigLaneClipId(clip.id)}
+                    >
                       <Maximize2 />
                       Edit movement
                     </Button>
