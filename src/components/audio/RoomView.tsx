@@ -1,4 +1,4 @@
-import { Ear, Eye, EyeOff, Link2, Speaker, Trash2 } from "lucide-react";
+import { Ear, Link2, Speaker, Trash2 } from "lucide-react";
 import { useState, type PointerEvent as ReactPointerEvent } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -26,7 +26,6 @@ type Props = {
   room: RoomConfig;
   paths: SoundPath[];
   activePathId: string | null;
-  defaultPathLengthMs: number;
   onSelect: (id: string) => void;
   onMoveSound: (id: string, pos: Vec3) => void;
   onMoveListener: (pos: Vec3) => void;
@@ -45,14 +44,10 @@ export function RoomView(p: Props) {
   const oy = (h - roomH) / 2;
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
   const [linkFromId, setLinkFromId] = useState<string | null>(null);
-  const [tipsVisible, setTipsVisible] = useState(true);
   const selectedSound = p.sounds.find((sound) => sound.id === p.selectedId) ?? null;
-  const activePath = p.paths.find(
-    (item) => item.id === p.activePathId && item.soundId === selectedSound?.id,
-  );
-  const path =
-    activePath ??
-    (selectedSound ? (p.paths.find((item) => item.soundId === selectedSound.id) ?? null) : null);
+  const path = selectedSound
+    ? (p.paths.find((item) => item.soundId === selectedSound.id) ?? null)
+    : null;
   const selectedSegment = path?.segments.find((s) => s.id === selectedSegmentId) ?? null;
 
   const toPx = (v: Vec3) => ({
@@ -86,7 +81,7 @@ export function RoomView(p: Props) {
     const base = ensurePath();
     if (!base) return;
     const position = toPoint(event.clientX, event.clientY, rootRect(event.currentTarget));
-    save(addPathNode(base, position, true, p.defaultPathLengthMs));
+    save(addPathNode(base, position, true));
     setLinkFromId(null);
   };
 
@@ -96,7 +91,7 @@ export function RoomView(p: Props) {
     event.stopPropagation();
     if (event.ctrlKey || event.metaKey) {
       if (linkFromId && linkFromId !== nodeId) {
-        save(connectNodes(path, linkFromId, nodeId, p.defaultPathLengthMs));
+        save(connectNodes(path, linkFromId, nodeId));
         setLinkFromId(null);
       } else setLinkFromId(nodeId);
       return;
@@ -169,7 +164,12 @@ export function RoomView(p: Props) {
       const target = e.currentTarget;
       const parent = rootRect(target);
       target.setPointerCapture(e.pointerId);
-      const move = (ev: PointerEvent) => cb(toPoint(ev.clientX, ev.clientY, parent));
+      const move = (ev: PointerEvent) => {
+        const point = toPoint(ev.clientX, ev.clientY, parent);
+        // Dragging in the 2D room view changes only the horizontal plane. Preserve each
+        // object's own height instead of copying the selected sound's z coordinate.
+        cb({ x: point.x, y: point.y });
+      };
       const up = () => {
         target.removeEventListener("pointermove", move);
         target.removeEventListener("pointerup", up);
@@ -188,7 +188,6 @@ export function RoomView(p: Props) {
     <div className="absolute inset-0 select-none" data-room-root>
       <div
         onPointerDown={placePoint}
-        title="Click to add a movement point. Ctrl-click two points to connect them."
         className="absolute overflow-hidden rounded-lg border border-border/70 bg-card/30 touch-none"
         style={{
           left: ox,
@@ -208,103 +207,75 @@ export function RoomView(p: Props) {
         </span>
       </div>
 
-      {tipsVisible ? (
-        <div className="absolute right-3 top-3 z-50 max-w-[22rem] space-y-1 rounded-md border border-border bg-background/90 p-2 text-[11px] shadow-lg">
-          <div className="flex items-start justify-between gap-2">
-            <p className="font-semibold uppercase text-muted-foreground">
-              {selectedSound ? `${selectedSound.name} automation` : "Select a sound"}
-            </p>
+      <div className="absolute left-3 top-3 z-50 max-w-[22rem] space-y-1 rounded-md border border-border bg-background/90 p-2 text-[11px] shadow-lg">
+        <p className="font-semibold uppercase text-muted-foreground">
+          {selectedSound ? `${selectedSound.name} automation` : "Select a sound"}
+        </p>
+        <p className="text-muted-foreground">
+          Click to add a point · Ctrl+click two points to link · Shift+drag a line to curve ·
+          Alt+click a line to split · right-click a line or point to delete it · Ctrl+Z to undo
+        </p>
+        {linkFromId && (
+          <p className="flex items-center gap-1 text-primary">
+            <Link2 className="size-3" /> Ctrl+click another point to connect
+          </p>
+        )}
+        {selectedSegment && (
+          <div className="flex items-center gap-1.5 pt-1">
+            <span className="text-muted-foreground">Line</span>
+            <Input
+              type="number"
+              min={0}
+              step={50}
+              className="h-7 w-24"
+              value={Math.round(selectedSegment.durationMs)}
+              onChange={(event) =>
+                path &&
+                p.onSavePath(
+                  withDuration(
+                    patchSegment(path, selectedSegment.id, {
+                      durationMs: Math.max(0, Number(event.target.value) || 0),
+                    }),
+                  ),
+                )
+              }
+            />
+            <span className="text-muted-foreground">ms</span>
             <Button
               size="icon"
               variant="ghost"
-              className="-mr-1 -mt-1 size-6 shrink-0"
-              aria-label="Hide room tips"
-              title="Hide room tips"
-              onClick={() => setTipsVisible(false)}
+              className="size-7"
+              aria-label="Delete automation line"
+              onClick={() => {
+                if (!path) return;
+                p.onSavePath(removeSegment(path, selectedSegment.id));
+                setSelectedSegmentId(null);
+              }}
             >
-              <EyeOff />
+              <Trash2 />
             </Button>
           </div>
-          <p className="text-muted-foreground">
-            Click to add a point · Ctrl+click two points to link · Shift+drag a line to curve ·
-            Alt+click a line to split · right-click a line or point to delete it · Ctrl+Z to undo
-          </p>
-          {linkFromId && (
-            <p className="flex items-center gap-1 text-primary">
-              <Link2 className="size-3" /> Ctrl+click another point to connect
-            </p>
-          )}
-          {selectedSegment && (
-            <div className="flex items-center gap-1.5 pt-1">
-              <span className="text-muted-foreground">Line</span>
-              <Input
-                type="number"
-                min={0}
-                step={50}
-                className="h-7 w-24"
-                title="Set the selected path segment duration"
-                value={Math.round(selectedSegment.durationMs)}
-                onChange={(event) =>
-                  path &&
-                  p.onSavePath(
-                    withDuration(
-                      patchSegment(path, selectedSegment.id, {
-                        durationMs: Math.max(0, Number(event.target.value) || 0),
-                      }),
-                    ),
-                  )
-                }
-              />
-              <span className="text-muted-foreground">ms</span>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="size-7"
-                aria-label="Delete automation line"
-                title="Delete the selected path segment"
-                onClick={() => {
-                  if (!path) return;
-                  p.onSavePath(removeSegment(path, selectedSegment.id));
-                  setSelectedSegmentId(null);
-                }}
-              >
-                <Trash2 />
-              </Button>
-            </div>
-          )}
-          {path && (
-            <div className="flex items-center gap-2 pt-1">
-              <span className="text-muted-foreground tabular-nums">
-                {path.nodes.length} points · {path.duration.toFixed(2)}s
-              </span>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-6 px-2"
-                title="Delete this movement path"
-                onClick={() => {
-                  p.onDeletePath(path.id);
-                  setSelectedSegmentId(null);
-                  setLinkFromId(null);
-                }}
-              >
-                Clear
-              </Button>
-            </div>
-          )}
-        </div>
-      ) : (
-        <Button
-          size="sm"
-          variant="secondary"
-          className="absolute right-3 top-3 z-50 h-7 gap-1.5 px-2 text-[11px]"
-          aria-label="Show room tips"
-          title="Show room tips"
-          onClick={() => setTipsVisible(true)}
-        >
-          <Eye /> Tips
-        </Button>
-      )}
+        )}
+        {path && (
+          <div className="flex items-center gap-2 pt-1">
+            <span className="text-muted-foreground tabular-nums">
+              {path.nodes.length} points · {path.duration.toFixed(2)}s
+            </span>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 px-2"
+              onClick={() => {
+                p.onDeletePath(path.id);
+                setSelectedSegmentId(null);
+                setLinkFromId(null);
+              }}
+            >
+              Clear
+            </Button>
+          </div>
+        )}
+      </div>
 
       {path && (
         <svg className="absolute inset-0 size-full" style={{ pointerEvents: "none" }}>
@@ -323,18 +294,13 @@ export function RoomView(p: Props) {
                   strokeWidth={14}
                   fill="none"
                   className="cursor-pointer"
-                  aria-label={`Path segment ${segment.id}`}
                   onPointerDown={segmentPointerDown(segment.id)}
                   onContextMenu={(event) => {
                     event.preventDefault();
                     p.onSavePath(withDuration(removeSegment(path, segment.id)));
                     setSelectedSegmentId(null);
                   }}
-                >
-                  <title>
-                    Click to select, Alt-click to split, Shift-drag to curve, right-click to delete
-                  </title>
-                </path>
+                />
                 <path
                   d={d}
                   fill="none"
@@ -355,16 +321,13 @@ export function RoomView(p: Props) {
                   cx={px.left}
                   cy={px.top}
                   r={7}
-                  aria-label={`Movement point ${index + 1}`}
                   className={`cursor-grab ${linkFromId === node.id ? "fill-foreground" : "fill-primary"}`}
                   onPointerDown={dragNode(node.id)}
                   onContextMenu={(event) => {
                     event.preventDefault();
                     p.onSavePath(withDuration(removeNode(path, node.id)));
                   }}
-                >
-                  <title>Drag to move; Ctrl-click to connect; right-click to delete</title>
-                </circle>
+                />
                 <text
                   x={px.left}
                   y={px.top - 10}
@@ -391,9 +354,7 @@ export function RoomView(p: Props) {
             }
             className={`absolute z-10 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center text-muted-foreground ${p.room.layout === "custom" ? "cursor-grab touch-none" : ""}`}
             style={toPx(sp.position)}
-            title={
-              p.room.layout === "custom" ? `Drag to move ${sp.name}` : `${sp.name} speaker position`
-            }
+            title={sp.name}
           >
             <Speaker className="size-5" />
             <span className="text-[10px]">{sp.name}</span>
@@ -405,7 +366,6 @@ export function RoomView(p: Props) {
         className="absolute z-20 grid size-9 -translate-x-1/2 -translate-y-1/2 cursor-grab touch-none place-items-center rounded-full border-2 border-foreground bg-background/80"
         style={toPx(p.room.listener)}
         aria-label="Listener"
-        title="Drag to move the listener position"
       >
         <Ear className="size-4" />
       </div>
@@ -424,7 +384,6 @@ export function RoomView(p: Props) {
               }}
               className="absolute z-30 -translate-x-1/2 -translate-y-1/2 cursor-grab touch-none"
               style={toPx(s.position)}
-              title={`Drag to move ${s.name}; click to select`}
             >
               <div
                 className={`grid place-items-center rounded-full text-[11px] font-bold text-background shadow-lg ${active ? "ring-2 ring-foreground" : ""} ${s.playing ? "animate-pulse" : "opacity-70"}`}
