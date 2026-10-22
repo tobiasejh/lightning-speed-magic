@@ -1,5 +1,6 @@
 import {
   Activity,
+  ChevronDown,
   Copy,
   Maximize2,
   Pause,
@@ -19,7 +20,12 @@ import { AutomationEditor } from "@/components/timeline/AutomationEditor";
 import { AutomationLane } from "@/components/timeline/AutomationLane";
 import { ProjectorRow } from "@/components/timeline/ProjectorRow";
 import { Button } from "@/components/ui/button";
-import { Slider } from "@/components/ui/slider";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Select,
   SelectContent,
@@ -27,6 +33,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Slider } from "@/components/ui/slider";
 import { formatTime } from "@/lib/format";
 import { axisOutline, pathDuration, snapTimelineTime, timelineLength } from "@/lib/timeline";
 import type {
@@ -245,17 +252,24 @@ export function ShowPanel(p: Props) {
         >
           <ZoomIn />
         </Button>
-        <Select onValueChange={(value) => addTrack(value as TimelineTrackKind)}>
-          <SelectTrigger className="ml-auto h-8 w-28">
-            <Plus />
-            <SelectValue placeholder="Track" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="visual">Visual</SelectItem>
-            <SelectItem value="audio">Audio</SelectItem>
-            <SelectItem value="movement">Movement</SelectItem>
-          </SelectContent>
-        </Select>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="outline"
+              className="ml-auto h-8 w-28 justify-between px-3"
+              title="Add a visual, audio, or movement track"
+            >
+              <Plus />
+              Track
+              <ChevronDown className="opacity-50" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-28">
+            <DropdownMenuItem onSelect={() => addTrack("visual")}>Visual</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => addTrack("audio")}>Audio</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => addTrack("movement")}>Movement</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
       <div className="overflow-x-auto rounded-md border border-border bg-background/50">
         <div className="flex min-w-max" style={{ width: width + 116 }}>
