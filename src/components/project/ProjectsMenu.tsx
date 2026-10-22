@@ -72,12 +72,23 @@ export function ProjectsMenu(p: Props) {
             {p.name}
           </button>
         )}
-        <Button size="sm" variant="secondary" onClick={p.onSave} aria-label="Save project">
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={p.onSave}
+          aria-label="Save project"
+          title="Save the current project"
+        >
           <Save className="size-4" />
         </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button size="sm" variant="outline" aria-label="Projects menu">
+            <Button
+              size="sm"
+              variant="outline"
+              aria-label="Projects menu"
+              title="Create, open, import, export, or delete a project"
+            >
               <FolderOpen className="size-4" />
             </Button>
           </DropdownMenuTrigger>

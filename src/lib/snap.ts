@@ -1,19 +1,33 @@
-import type { Pt } from "./warp";
+import { outlineStagePoints, type Pt } from "./warp";
 import type { Surface } from "./types";
 
 export type SnapResult = { point: Pt; snapped: boolean; target: Pt | null };
 
-/** Candidate points (normalised) a dragged corner may snap to. */
-export function snapCandidates(surfaces: Surface[], excludeId: string): Pt[] {
+/** Candidate points (normalised) a dragged corner or outline point may snap to. */
+export function snapCandidates(
+  surfaces: Surface[],
+  excludeId: string,
+  includeSurfacePoints?: { surfaceId: string; excludeOutlineIndex: number },
+): Pt[] {
   const pts: Pt[] = [];
   for (const s of surfaces) {
-    if (s.id === excludeId) continue;
+    const includeSameSurface = s.id === includeSurfacePoints?.surfaceId;
+    if (s.id === excludeId && !includeSameSurface) continue;
     for (const c of s.corners) pts.push(c);
+    if (s.outline && s.outline.length > 4) {
+      outlineStagePoints(s.corners, s.outline).forEach((point, index) => {
+        if (!includeSameSurface || index !== includeSurfacePoints.excludeOutlineIndex) {
+          pts.push(point);
+        }
+      });
+    }
     // edge midpoints
-    for (let i = 0; i < s.corners.length; i++) {
-      const a = s.corners[i]!;
-      const b = s.corners[(i + 1) % s.corners.length]!;
-      pts.push({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+    if (!includeSameSurface) {
+      for (let i = 0; i < s.corners.length; i++) {
+        const a = s.corners[i]!;
+        const b = s.corners[(i + 1) % s.corners.length]!;
+        pts.push({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+      }
     }
   }
   // stage corners and midpoints

@@ -181,25 +181,32 @@ export const splitSegment = (path: SoundPath, segmentId: string, t: number): Sou
   return withDuration({ ...path, nodes: [...path.nodes, node], segments });
 };
 
-export const addPathNode = (path: SoundPath, position: Vec3, connect: boolean): SoundPath => {
+export const addPathNode = (
+  path: SoundPath,
+  position: Vec3,
+  connect: boolean,
+  durationMs = 1000,
+): SoundPath => {
   const node: PathNode = { id: uid("n"), position };
   const chain = pathChain(path);
   const lastId = chain[chain.length - 1]?.nodeId;
   const segments = [...(path.segments ?? [])];
   if (connect && lastId && path.nodes.length)
-    segments.push({ id: uid("s"), fromId: lastId, toId: node.id, durationMs: 1000, curve: 0 });
+    segments.push({ id: uid("s"), fromId: lastId, toId: node.id, durationMs, curve: 0 });
   return withDuration({ ...path, nodes: [...path.nodes, node], segments });
 };
 
-export const connectNodes = (path: SoundPath, fromId: string, toId: string): SoundPath => {
+export const connectNodes = (
+  path: SoundPath,
+  fromId: string,
+  toId: string,
+  durationMs = 1000,
+): SoundPath => {
   if (fromId === toId) return path;
   if ((path.segments ?? []).some((s) => s.fromId === fromId && s.toId === toId)) return path;
   return withDuration({
     ...path,
-    segments: [
-      ...(path.segments ?? []),
-      { id: uid("s"), fromId, toId, durationMs: 1000, curve: 0 },
-    ],
+    segments: [...(path.segments ?? []), { id: uid("s"), fromId, toId, durationMs, curve: 0 }],
   });
 };
 
