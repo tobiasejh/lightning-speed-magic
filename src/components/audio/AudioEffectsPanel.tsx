@@ -54,6 +54,7 @@ export function AudioEffectsPanel(p: Props) {
             size="sm"
             variant={p.reverb.enabled ? "default" : "secondary"}
             aria-pressed={p.reverb.enabled}
+            title={p.reverb.enabled ? "Turn off the reverb bus" : "Turn on the reverb bus"}
             onClick={() => p.onReverb({ enabled: !p.reverb.enabled })}
           >
             {p.reverb.enabled ? "On" : "Off"}
@@ -67,6 +68,7 @@ export function AudioEffectsPanel(p: Props) {
             value={`${Math.round(p.reverb.level * 100)}%`}
           >
             <Slider
+              title="Adjust the reverb bus output level"
               value={[p.reverb.level]}
               min={0}
               max={1}
@@ -101,6 +103,7 @@ export function AudioEffectsPanel(p: Props) {
             value={`${Math.round(p.reverb.preDelayMs)} ms`}
           >
             <Slider
+              title="Set the reverb pre-delay"
               value={[p.reverb.preDelayMs]}
               min={0}
               max={250}
@@ -115,6 +118,7 @@ export function AudioEffectsPanel(p: Props) {
             value={`${Math.round(p.reverb.earlyAmount * 100)}%`}
           >
             <Slider
+              title="Adjust the amount of early reflections"
               value={[p.reverb.earlyAmount]}
               min={0}
               max={1}
@@ -167,6 +171,7 @@ export function AudioEffectsPanel(p: Props) {
                 <div className="w-40 shrink-0">
                   <Slider
                     aria-label={`Reverb send for ${clip.name}`}
+                    title={`Adjust how much of ${clip.name} is sent to reverb`}
                     value={[send]}
                     min={0}
                     max={1}

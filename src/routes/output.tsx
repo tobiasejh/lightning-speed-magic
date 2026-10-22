@@ -186,11 +186,11 @@ export function OutputPage() {
           height: canvas.h || 1,
         }}
       >
-        {mine.map((s, i) => (
+        {[...mine].reverse().map((s) => (
           <SurfaceLayer
             key={s.id}
             surface={s}
-            index={i}
+            index={mine.findIndex((surface) => surface.id === s.id)}
             stage={canvas}
             globals={{ ...snap.globals, audioReactive: false }}
             testPattern={snap.testPattern}

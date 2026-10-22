@@ -61,16 +61,27 @@ export function SoundPanel(p: Props) {
         }}
       />
       <div className="flex gap-2">
-        <Button size="sm" className="flex-1" onClick={anyPlaying ? p.onStopAll : p.onPlayAll}>
+        <Button
+          size="sm"
+          className="flex-1"
+          title={anyPlaying ? "Stop all sounds" : "Play all sounds"}
+          onClick={anyPlaying ? p.onStopAll : p.onPlayAll}
+        >
           {anyPlaying ? <Square className="size-4" /> : <Play className="size-4" />}
           {anyPlaying ? "Stop all" : "Play all"}
         </Button>
-        <Button size="sm" variant="secondary" onClick={() => fileRef.current?.click()}>
+        <Button
+          size="sm"
+          variant="secondary"
+          title="Add audio files to the room"
+          onClick={() => fileRef.current?.click()}
+        >
           <Plus className="size-4" /> Add sound
         </Button>
       </div>
       <LabeledRow label="Master volume" value={`${Math.round(p.room.masterGain * 100)}%`}>
         <Slider
+          title="Adjust master output volume"
           value={[p.room.masterGain]}
           min={0}
           max={1.5}
@@ -96,13 +107,18 @@ export function SoundPanel(p: Props) {
                 <div className="flex items-center gap-2">
                   <button
                     aria-label={s.playing ? "Pause" : "Play"}
+                    title={s.playing ? `Pause ${s.name}` : `Play ${s.name}`}
                     onClick={() => p.onPatch(s.id, { playing: !s.playing })}
                     className="grid size-7 shrink-0 place-items-center rounded-full text-background"
                     style={{ background: s.color }}
                   >
                     {s.playing ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
                   </button>
-                  <button className="min-w-0 flex-1 text-left" onClick={() => p.onSelect(s.id)}>
+                  <button
+                    className="min-w-0 flex-1 text-left"
+                    title={`Select ${s.name} and edit its settings`}
+                    onClick={() => p.onSelect(s.id)}
+                  >
                     <span className="block truncate text-sm font-medium">{s.name}</span>
                     <span className="block text-[11px] text-muted-foreground">
                       {s.kind === "ambisonic"
@@ -124,6 +140,7 @@ export function SoundPanel(p: Props) {
                   </Tog>
                   <button
                     aria-label="Remove sound"
+                    title={`Remove ${s.name}`}
                     onClick={() => p.onRemove(s.id)}
                     className="text-muted-foreground hover:text-destructive"
                   >
@@ -134,6 +151,7 @@ export function SoundPanel(p: Props) {
                   <div className="mt-2 space-y-2">
                     <LabeledRow label="Volume" value={`${Math.round(s.gain * 100)}%`}>
                       <Slider
+                        title={`Adjust ${s.name} volume`}
                         value={[s.gain]}
                         min={0}
                         max={1.5}
@@ -144,6 +162,7 @@ export function SoundPanel(p: Props) {
                     {s.kind === "ambisonic" ? (
                       <LabeledRow label="Heading" value={`${Math.round(s.heading)}°`}>
                         <Slider
+                          title="Rotate the ambisonic sound field"
                           value={[s.heading]}
                           min={-180}
                           max={180}
@@ -154,6 +173,7 @@ export function SoundPanel(p: Props) {
                     ) : (
                       <LabeledRow label="Height" value={`${s.position.z.toFixed(2)}`}>
                         <Slider
+                          title="Adjust the sound's height in the room"
                           value={[s.position.z]}
                           min={-1}
                           max={1}
@@ -180,6 +200,7 @@ export function SoundPanel(p: Props) {
           <Button
             size="sm"
             variant={p.room.outputMode === "headphones" ? "default" : "secondary"}
+            title="Use binaural headphone output"
             onClick={() => p.onRoom({ outputMode: "headphones" })}
           >
             <Headphones className="size-4" /> Headphones
@@ -187,6 +208,7 @@ export function SoundPanel(p: Props) {
           <Button
             size="sm"
             variant={p.room.outputMode === "speakers" ? "default" : "secondary"}
+            title="Route sound to the configured speakers"
             onClick={() => p.onRoom({ outputMode: "speakers" })}
           >
             <Speaker className="size-4" /> Speakers
@@ -206,7 +228,11 @@ export function SoundPanel(p: Props) {
                 })
               }
             >
-              <SelectTrigger className="h-8" aria-label="Speaker layout">
+              <SelectTrigger
+                className="h-8"
+                aria-label="Speaker layout"
+                title="Choose a preset or custom speaker layout"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -224,6 +250,7 @@ export function SoundPanel(p: Props) {
                   size="sm"
                   variant="secondary"
                   className="flex-1"
+                  title="Add a speaker to the custom room layout"
                   onClick={() => {
                     const n = p.room.speakers.length + 1;
                     const a = (n / 8) * Math.PI * 2;
@@ -245,6 +272,7 @@ export function SoundPanel(p: Props) {
                   size="sm"
                   variant="secondary"
                   className="flex-1"
+                  title="Remove the last speaker from the custom room layout"
                   disabled={p.room.speakers.length <= 1}
                   onClick={() => p.onRoom({ speakers: p.room.speakers.slice(0, -1) })}
                 >
@@ -306,7 +334,11 @@ export function SoundPanel(p: Props) {
         )}
         {p.devices.length > 0 && (
           <Select value={p.deviceId || "default"} onValueChange={p.onDevice}>
-            <SelectTrigger className="h-8" aria-label="Output device">
+            <SelectTrigger
+              className="h-8"
+              aria-label="Output device"
+              title="Choose the audio output device"
+            >
               <SelectValue placeholder="Output device" />
             </SelectTrigger>
             <SelectContent>
@@ -322,6 +354,7 @@ export function SoundPanel(p: Props) {
         <div className="grid grid-cols-2 gap-3">
           <LabeledRow label="Width" value={`${p.room.width} m`}>
             <Slider
+              title="Adjust the room width"
               value={[p.room.width]}
               min={2}
               max={100}
@@ -331,6 +364,7 @@ export function SoundPanel(p: Props) {
           </LabeledRow>
           <LabeledRow label="Length" value={`${p.room.length} m`}>
             <Slider
+              title="Adjust the room length"
               value={[p.room.length]}
               min={2}
               max={100}
@@ -343,7 +377,11 @@ export function SoundPanel(p: Props) {
           value={String(p.room.order)}
           onValueChange={(v) => p.onRoom({ order: Number(v) as RoomConfig["order"] })}
         >
-          <SelectTrigger className="h-8" aria-label="Ambisonic order">
+          <SelectTrigger
+            className="h-8"
+            aria-label="Ambisonic order"
+            title="Set the ambisonic decoding order"
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -374,6 +412,7 @@ function Tog({
   return (
     <button
       aria-label={label}
+      title={`${label} ${on ? "on" : "off"}`}
       aria-pressed={on}
       onClick={onClick}
       className={`grid size-6 place-items-center rounded ${
