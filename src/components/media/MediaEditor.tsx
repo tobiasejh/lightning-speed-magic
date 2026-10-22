@@ -1,4 +1,12 @@
-import { Crop as CropIcon, Pause, Play, Scissors, Trash2 } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Crop as CropIcon,
+  Pause,
+  Play,
+  Scissors,
+  Trash2,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -142,6 +150,7 @@ export function MediaEditor(p: Props) {
             {item.kind === "video" ? (
               <video
                 ref={vidRef}
+                data-media-editor-preview
                 key={item.id}
                 src={item.url}
                 muted
@@ -204,6 +213,41 @@ export function MediaEditor(p: Props) {
                   >
                     {playing ? <Pause className="size-4" /> : <Play className="size-4" />} Preview
                     range
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    aria-label="Step one frame backward"
+                    title="Step one frame backward"
+                    onClick={() => {
+                      const v = vidRef.current;
+                      if (v) {
+                        v.pause();
+                        v.currentTime = Math.max(inS, v.currentTime - 1 / 30);
+                        setPlaying(false);
+                      }
+                    }}
+                  >
+                    <ArrowLeft className="size-4" /> Frame
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    aria-label="Step one frame forward"
+                    title="Step one frame forward"
+                    onClick={() => {
+                      const v = vidRef.current;
+                      if (v) {
+                        v.pause();
+                        v.currentTime = Math.min(
+                          outS || duration || Infinity,
+                          v.currentTime + 1 / 30,
+                        );
+                        setPlaying(false);
+                      }
+                    }}
+                  >
+                    Frame <ArrowRight className="size-4" />
                   </Button>
                   <Button
                     size="sm"

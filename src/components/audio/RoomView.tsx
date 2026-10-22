@@ -1,4 +1,4 @@
-import { Ear, Link2, Speaker, Trash2 } from "lucide-react";
+import { Ear, Eye, EyeOff, Link2, Speaker, Trash2 } from "lucide-react";
 import { useState, type PointerEvent as ReactPointerEvent } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,8 @@ type Props = {
   room: RoomConfig;
   paths: SoundPath[];
   activePathId: string | null;
+  defaultPathLengthMs: number;
+  onDefaultPathLengthMs: (length: number) => void;
   onSelect: (id: string) => void;
   onMoveSound: (id: string, pos: Vec3) => void;
   onMoveListener: (pos: Vec3) => void;
@@ -44,9 +46,12 @@ export function RoomView(p: Props) {
   const oy = (h - roomH) / 2;
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
   const [linkFromId, setLinkFromId] = useState<string | null>(null);
+  const [tipsVisible, setTipsVisible] = useState(true);
   const selectedSound = p.sounds.find((sound) => sound.id === p.selectedId) ?? null;
   const path = selectedSound
-    ? (p.paths.find((item) => item.soundId === selectedSound.id) ?? null)
+    ? (p.paths.find((item) => item.id === p.activePathId && item.soundId === selectedSound.id) ??
+      p.paths.find((item) => item.soundId === selectedSound.id) ??
+      null)
     : null;
   const selectedSegment = path?.segments.find((s) => s.id === selectedSegmentId) ?? null;
 
@@ -81,7 +86,7 @@ export function RoomView(p: Props) {
     const base = ensurePath();
     if (!base) return;
     const position = toPoint(event.clientX, event.clientY, rootRect(event.currentTarget));
-    save(addPathNode(base, position, true));
+    save(addPathNode(base, position, true, p.defaultPathLengthMs));
     setLinkFromId(null);
   };
 
@@ -91,7 +96,7 @@ export function RoomView(p: Props) {
     event.stopPropagation();
     if (event.ctrlKey || event.metaKey) {
       if (linkFromId && linkFromId !== nodeId) {
-        save(connectNodes(path, linkFromId, nodeId));
+        save(connectNodes(path, linkFromId, nodeId, p.defaultPathLengthMs));
         setLinkFromId(null);
       } else setLinkFromId(nodeId);
       return;
@@ -207,75 +212,115 @@ export function RoomView(p: Props) {
         </span>
       </div>
 
-      <div className="absolute left-3 top-3 z-50 max-w-[22rem] space-y-1 rounded-md border border-border bg-background/90 p-2 text-[11px] shadow-lg">
-        <p className="font-semibold uppercase text-muted-foreground">
-          {selectedSound ? `${selectedSound.name} automation` : "Select a sound"}
-        </p>
-        <p className="text-muted-foreground">
-          Click to add a point · Ctrl+click two points to link · Shift+drag a line to curve ·
-          Alt+click a line to split · right-click a line or point to delete it · Ctrl+Z to undo
-        </p>
-        {linkFromId && (
-          <p className="flex items-center gap-1 text-primary">
-            <Link2 className="size-3" /> Ctrl+click another point to connect
+      {tipsVisible ? (
+        <div className="absolute right-3 top-3 z-50 max-w-[22rem] space-y-1 rounded-md border border-border bg-background/90 p-2 text-[11px] shadow-lg">
+          <div className="flex items-start justify-between gap-2">
+            <p className="font-semibold uppercase text-muted-foreground">
+              {selectedSound ? `${selectedSound.name} automation` : "Select a sound"}
+            </p>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="-mr-1 -mt-1 size-6 shrink-0"
+              aria-label="Hide room tips"
+              title="Hide room tips"
+              onClick={() => setTipsVisible(false)}
+            >
+              <EyeOff />
+            </Button>
+          </div>
+          <p className="text-muted-foreground">
+            Click to add a point · Ctrl+click two points to link · Shift+drag a line to curve ·
+            Alt+click a line to split · right-click a line or point to delete it · Ctrl+Z to undo
           </p>
-        )}
-        {selectedSegment && (
+          {linkFromId && (
+            <p className="flex items-center gap-1 text-primary">
+              <Link2 className="size-3" /> Ctrl+click another point to connect
+            </p>
+          )}
           <div className="flex items-center gap-1.5 pt-1">
-            <span className="text-muted-foreground">Line</span>
+            <span className="text-muted-foreground">New line</span>
             <Input
               type="number"
               min={0}
               step={50}
-              className="h-7 w-24"
-              value={Math.round(selectedSegment.durationMs)}
+              className="h-7 w-20"
+              aria-label="Default movement segment length in milliseconds"
+              value={p.defaultPathLengthMs}
               onChange={(event) =>
-                path &&
-                p.onSavePath(
-                  withDuration(
-                    patchSegment(path, selectedSegment.id, {
-                      durationMs: Math.max(0, Number(event.target.value) || 0),
-                    }),
-                  ),
-                )
+                p.onDefaultPathLengthMs(Math.max(0, Number(event.target.value) || 0))
               }
             />
             <span className="text-muted-foreground">ms</span>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="size-7"
-              aria-label="Delete automation line"
-              onClick={() => {
-                if (!path) return;
-                p.onSavePath(removeSegment(path, selectedSegment.id));
-                setSelectedSegmentId(null);
-              }}
-            >
-              <Trash2 />
-            </Button>
           </div>
-        )}
-        {path && (
-          <div className="flex items-center gap-2 pt-1">
-            <span className="text-muted-foreground tabular-nums">
-              {path.nodes.length} points · {path.duration.toFixed(2)}s
-            </span>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-6 px-2"
-              onClick={() => {
-                p.onDeletePath(path.id);
-                setSelectedSegmentId(null);
-                setLinkFromId(null);
-              }}
-            >
-              Clear
-            </Button>
-          </div>
-        )}
-      </div>
+          {selectedSegment && (
+            <div className="flex items-center gap-1.5 pt-1">
+              <span className="text-muted-foreground">Line</span>
+              <Input
+                type="number"
+                min={0}
+                step={50}
+                className="h-7 w-24"
+                value={Math.round(selectedSegment.durationMs)}
+                onChange={(event) =>
+                  path &&
+                  p.onSavePath(
+                    withDuration(
+                      patchSegment(path, selectedSegment.id, {
+                        durationMs: Math.max(0, Number(event.target.value) || 0),
+                      }),
+                    ),
+                  )
+                }
+              />
+              <span className="text-muted-foreground">ms</span>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="size-7"
+                aria-label="Delete automation line"
+                onClick={() => {
+                  if (!path) return;
+                  p.onSavePath(removeSegment(path, selectedSegment.id));
+                  setSelectedSegmentId(null);
+                }}
+              >
+                <Trash2 />
+              </Button>
+            </div>
+          )}
+          {path && (
+            <div className="flex items-center gap-2 pt-1">
+              <span className="text-muted-foreground tabular-nums">
+                {path.nodes.length} points · {path.duration.toFixed(2)}s
+              </span>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 px-2"
+                onClick={() => {
+                  p.onDeletePath(path.id);
+                  setSelectedSegmentId(null);
+                  setLinkFromId(null);
+                }}
+              >
+                Clear
+              </Button>
+            </div>
+          )}
+        </div>
+      ) : (
+        <Button
+          size="sm"
+          variant="secondary"
+          className="absolute right-3 top-3 z-50 h-7 gap-1.5 px-2 text-[11px]"
+          aria-label="Show room tips"
+          title="Show room tips"
+          onClick={() => setTipsVisible(true)}
+        >
+          <Eye /> Tips
+        </Button>
+      )}
 
       {path && (
         <svg className="absolute inset-0 size-full" style={{ pointerEvents: "none" }}>

@@ -6,6 +6,7 @@ import {
   Pause,
   Play,
   Plus,
+  Repeat,
   Ruler,
   Square,
   Trash2,
@@ -100,6 +101,7 @@ export function ShowPanel(p: Props) {
     return null;
   };
   const maxDuration = (clip: TimelineClip, inPoint = clip.inPoint) => {
+    if (clip.kind === "movement") return Infinity;
     const total = sourceLength(clip);
     return total === null ? Infinity : Math.max(0.25, total - inPoint);
   };
@@ -462,6 +464,15 @@ export function ShowPanel(p: Props) {
                 )}
                 {movementPath && (
                   <>
+                    <Button
+                      size="sm"
+                      variant={clip.loop ? "default" : "secondary"}
+                      aria-pressed={!!clip.loop}
+                      title="Repeat this movement path for the full timeline clip"
+                      onClick={() => patchClip(clip.id, { loop: !clip.loop })}
+                    >
+                      <Repeat /> {clip.loop ? "Loop on" : "Loop off"}
+                    </Button>
                     <Button
                       size="sm"
                       variant={showLanes ? "default" : "secondary"}
