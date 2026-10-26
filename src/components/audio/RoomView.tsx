@@ -169,12 +169,7 @@ export function RoomView(p: Props) {
       const target = e.currentTarget;
       const parent = rootRect(target);
       target.setPointerCapture(e.pointerId);
-      const move = (ev: PointerEvent) => {
-        const point = toPoint(ev.clientX, ev.clientY, parent);
-        // Dragging in the 2D room view changes only the horizontal plane. Preserve each
-        // object's own height instead of copying the selected sound's z coordinate.
-        cb({ x: point.x, y: point.y });
-      };
+      const move = (ev: PointerEvent) => cb(toPoint(ev.clientX, ev.clientY, parent));
       const up = () => {
         target.removeEventListener("pointermove", move);
         target.removeEventListener("pointerup", up);
@@ -193,6 +188,7 @@ export function RoomView(p: Props) {
     <div className="absolute inset-0 select-none" data-room-root>
       <div
         onPointerDown={placePoint}
+        title="Click to add a movement point. Ctrl-click two points to connect them."
         className="absolute overflow-hidden rounded-lg border border-border/70 bg-card/30 touch-none"
         style={{
           left: ox,
@@ -339,13 +335,18 @@ export function RoomView(p: Props) {
                   strokeWidth={14}
                   fill="none"
                   className="cursor-pointer"
+                  aria-label={`Path segment ${segment.id}`}
                   onPointerDown={segmentPointerDown(segment.id)}
                   onContextMenu={(event) => {
                     event.preventDefault();
                     p.onSavePath(withDuration(removeSegment(path, segment.id)));
                     setSelectedSegmentId(null);
                   }}
-                />
+                >
+                  <title>
+                    Click to select, Alt-click to split, Shift-drag to curve, right-click to delete
+                  </title>
+                </path>
                 <path
                   d={d}
                   fill="none"
@@ -366,13 +367,16 @@ export function RoomView(p: Props) {
                   cx={px.left}
                   cy={px.top}
                   r={7}
+                  aria-label={`Movement point ${index + 1}`}
                   className={`cursor-grab ${linkFromId === node.id ? "fill-foreground" : "fill-primary"}`}
                   onPointerDown={dragNode(node.id)}
                   onContextMenu={(event) => {
                     event.preventDefault();
                     p.onSavePath(withDuration(removeNode(path, node.id)));
                   }}
-                />
+                >
+                  <title>Drag to move; Ctrl-click to connect; right-click to delete</title>
+                </circle>
                 <text
                   x={px.left}
                   y={px.top - 10}
@@ -399,7 +403,9 @@ export function RoomView(p: Props) {
             }
             className={`absolute z-10 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center text-muted-foreground ${p.room.layout === "custom" ? "cursor-grab touch-none" : ""}`}
             style={toPx(sp.position)}
-            title={sp.name}
+            title={
+              p.room.layout === "custom" ? `Drag to move ${sp.name}` : `${sp.name} speaker position`
+            }
           >
             <Speaker className="size-5" />
             <span className="text-[10px]">{sp.name}</span>
@@ -411,6 +417,7 @@ export function RoomView(p: Props) {
         className="absolute z-20 grid size-9 -translate-x-1/2 -translate-y-1/2 cursor-grab touch-none place-items-center rounded-full border-2 border-foreground bg-background/80"
         style={toPx(p.room.listener)}
         aria-label="Listener"
+        title="Drag to move the listener position"
       >
         <Ear className="size-4" />
       </div>
@@ -429,6 +436,7 @@ export function RoomView(p: Props) {
               }}
               className="absolute z-30 -translate-x-1/2 -translate-y-1/2 cursor-grab touch-none"
               style={toPx(s.position)}
+              title={`Drag to move ${s.name}; click to select`}
             >
               <div
                 className={`grid place-items-center rounded-full text-[11px] font-bold text-background shadow-lg ${active ? "ring-2 ring-foreground" : ""} ${s.playing ? "animate-pulse" : "opacity-70"}`}

@@ -23,6 +23,8 @@ import { formatTimeTenths } from "@/lib/format";
 import type { Crop, MediaItem, SoundItem } from "@/lib/types";
 import { clamp01 } from "@/lib/warp";
 
+const FRAME_DURATION_SECONDS = 1 / 30;
+
 type Props = {
   media: MediaItem[];
   item: MediaItem | null;
@@ -45,15 +47,12 @@ export function MediaEditor(p: Props) {
   const [playing, setPlaying] = useState(false);
 
   useEffect(() => {
-    // Reset editor-local state only when switching media. Saving trim values updates the
-    // item props; resetting duration on that update temporarily unmounts the trim sliders.
     setCrop(item?.crop ?? null);
     setInS(item?.trimStart ?? 0);
     setOutS(item?.trimEnd ?? 0);
     setDuration(0);
-    setTime(0);
     setPlaying(false);
-  }, [item?.id]);
+  }, [item?.id, item?.crop, item?.trimStart, item?.trimEnd]);
 
   // keep preview inside the in/out range
   useEffect(() => {
@@ -68,12 +67,18 @@ export function MediaEditor(p: Props) {
       setDuration(v.duration || 0);
       if (!outS) setOutS(v.duration || 0);
     };
+    const onPlay = () => setPlaying(true);
+    const onPause = () => setPlaying(false);
     v.addEventListener("timeupdate", onTime);
     v.addEventListener("loadedmetadata", onMeta);
+    v.addEventListener("play", onPlay);
+    v.addEventListener("pause", onPause);
     if (v.readyState >= 1) onMeta();
     return () => {
       v.removeEventListener("timeupdate", onTime);
       v.removeEventListener("loadedmetadata", onMeta);
+      v.removeEventListener("play", onPlay);
+      v.removeEventListener("pause", onPause);
     };
   }, [item?.id, inS, outS]);
 
@@ -106,11 +111,29 @@ export function MediaEditor(p: Props) {
     p.onPatch(item.id, { crop: crop ?? undefined });
   };
 
+  const stepFrame = (direction: -1 | 1) => {
+    const video = vidRef.current;
+    if (!video) return;
+    video.pause();
+    setPlaying(false);
+    const end = outS || duration || video.duration;
+    const nextTime = Math.max(
+      inS,
+      Math.min(end, video.currentTime + direction * FRAME_DURATION_SECONDS),
+    );
+    video.currentTime = nextTime;
+    setTime(nextTime);
+  };
+
   return (
     <div className="absolute inset-0 z-20 flex flex-col gap-3 overflow-y-auto bg-background/95 p-4">
       <div className="flex flex-wrap items-center gap-2">
         <Select value={item?.id ?? ""} onValueChange={p.onSelect}>
-          <SelectTrigger className="h-8 w-56" aria-label="Choose media to edit">
+          <SelectTrigger
+            className="h-8 w-56"
+            aria-label="Choose media to edit"
+            title="Select an image or video to edit"
+          >
             <SelectValue placeholder="Choose a photo or video" />
           </SelectTrigger>
           <SelectContent>
@@ -126,6 +149,7 @@ export function MediaEditor(p: Props) {
             size="sm"
             variant="ghost"
             className="text-destructive"
+            title={`Delete ${item.name}`}
             onClick={() => p.onDelete(item.id)}
           >
             <Trash2 className="size-4" /> Delete
@@ -145,6 +169,7 @@ export function MediaEditor(p: Props) {
           <div
             ref={frameRef}
             onPointerDown={startCrop}
+            title="Drag across the image to define the crop area"
             className="relative mx-auto max-h-[46vh] w-full max-w-3xl cursor-crosshair touch-none select-none overflow-hidden rounded-lg border border-border bg-black"
           >
             {item.kind === "video" ? (
@@ -155,6 +180,7 @@ export function MediaEditor(p: Props) {
                 src={item.url}
                 muted
                 playsInline
+                title="Preview video; use the controls below to step frame by frame"
                 className="max-h-[46vh] w-full object-contain"
               />
             ) : (
@@ -180,12 +206,13 @@ export function MediaEditor(p: Props) {
 
           <div className="mx-auto w-full max-w-3xl space-y-3">
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" onClick={applyCrop}>
+              <Button size="sm" title="Apply the selected crop to this media" onClick={applyCrop}>
                 <CropIcon className="size-4" /> Use this crop
               </Button>
               <Button
                 size="sm"
                 variant="secondary"
+                title="Clear the crop selection and use the whole frame"
                 onClick={() => {
                   setCrop(null);
                   p.onPatch(item.id, { crop: undefined });
@@ -198,6 +225,9 @@ export function MediaEditor(p: Props) {
                   <Button
                     size="sm"
                     variant="secondary"
+                    title={
+                      playing ? "Pause the preview" : "Play between the selected start and end"
+                    }
                     onClick={() => {
                       const v = vidRef.current;
                       if (!v) return;
@@ -213,6 +243,26 @@ export function MediaEditor(p: Props) {
                   >
                     {playing ? <Pause className="size-4" /> : <Play className="size-4" />} Preview
                     range
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    aria-label="Previous frame"
+                    title="Previous frame (1/30 second)"
+                    disabled={time <= inS}
+                    onClick={() => stepFrame(-1)}
+                  >
+                    <ArrowLeft className="size-4" />
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    aria-label="Next frame"
+                    title="Next frame (1/30 second)"
+                    disabled={time >= (outS || duration)}
+                    onClick={() => stepFrame(1)}
+                  >
+                    <ArrowRight className="size-4" />
                   </Button>
                   <Button
                     size="sm"
@@ -252,6 +302,7 @@ export function MediaEditor(p: Props) {
                   <Button
                     size="sm"
                     variant="outline"
+                    title="Create a new media item from the selected range"
                     onClick={() => p.onSaveClip(item.id, crop ?? undefined, inS, outS || duration)}
                   >
                     <Scissors className="size-4" /> Save as clip
@@ -259,6 +310,7 @@ export function MediaEditor(p: Props) {
                   <Button
                     size="sm"
                     variant="secondary"
+                    title="Apply the selected start and end times to this media"
                     onClick={() =>
                       p.onPatch(item.id, {
                         trimStart: inS,
@@ -276,19 +328,21 @@ export function MediaEditor(p: Props) {
               <>
                 <LabeledRow label="Start" value={formatTimeTenths(inS)}>
                   <Slider
+                    title="Set the in-point of the video trim"
                     value={[inS]}
                     min={0}
                     max={duration}
-                    step={0.05}
+                    step={FRAME_DURATION_SECONDS}
                     onValueChange={([v = 0]) => setInS(Math.min(v, (outS || duration) - 0.1))}
                   />
                 </LabeledRow>
                 <LabeledRow label="End" value={formatTimeTenths(outS || duration)}>
                   <Slider
+                    title="Set the out-point of the video trim"
                     value={[outS || duration]}
                     min={0}
                     max={duration}
-                    step={0.05}
+                    step={FRAME_DURATION_SECONDS}
                     onValueChange={([v = 0]) => setOutS(Math.max(v, inS + 0.1))}
                   />
                 </LabeledRow>
