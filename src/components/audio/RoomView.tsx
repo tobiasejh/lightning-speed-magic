@@ -27,6 +27,7 @@ type Props = {
   paths: SoundPath[];
   activePathId: string | null;
   defaultPathLengthMs: number;
+  onDefaultPathLengthMs: (length: number) => void;
   onSelect: (id: string) => void;
   onMoveSound: (id: string, pos: Vec3) => void;
   onMoveListener: (pos: Vec3) => void;
@@ -47,12 +48,11 @@ export function RoomView(p: Props) {
   const [linkFromId, setLinkFromId] = useState<string | null>(null);
   const [tipsVisible, setTipsVisible] = useState(true);
   const selectedSound = p.sounds.find((sound) => sound.id === p.selectedId) ?? null;
-  const activePath = p.paths.find(
-    (item) => item.id === p.activePathId && item.soundId === selectedSound?.id,
-  );
-  const path =
-    activePath ??
-    (selectedSound ? (p.paths.find((item) => item.soundId === selectedSound.id) ?? null) : null);
+  const path = selectedSound
+    ? (p.paths.find((item) => item.id === p.activePathId && item.soundId === selectedSound.id) ??
+      p.paths.find((item) => item.soundId === selectedSound.id) ??
+      null)
+    : null;
   const selectedSegment = path?.segments.find((s) => s.id === selectedSegmentId) ?? null;
 
   const toPx = (v: Vec3) => ({
@@ -234,6 +234,21 @@ export function RoomView(p: Props) {
               <Link2 className="size-3" /> Ctrl+click another point to connect
             </p>
           )}
+          <div className="flex items-center gap-1.5 pt-1">
+            <span className="text-muted-foreground">New line</span>
+            <Input
+              type="number"
+              min={0}
+              step={50}
+              className="h-7 w-20"
+              aria-label="Default movement segment length in milliseconds"
+              value={p.defaultPathLengthMs}
+              onChange={(event) =>
+                p.onDefaultPathLengthMs(Math.max(0, Number(event.target.value) || 0))
+              }
+            />
+            <span className="text-muted-foreground">ms</span>
+          </div>
           {selectedSegment && (
             <div className="flex items-center gap-1.5 pt-1">
               <span className="text-muted-foreground">Line</span>
@@ -242,7 +257,6 @@ export function RoomView(p: Props) {
                 min={0}
                 step={50}
                 className="h-7 w-24"
-                title="Set the selected path segment duration"
                 value={Math.round(selectedSegment.durationMs)}
                 onChange={(event) =>
                   path &&
@@ -261,7 +275,6 @@ export function RoomView(p: Props) {
                 variant="ghost"
                 className="size-7"
                 aria-label="Delete automation line"
-                title="Delete the selected path segment"
                 onClick={() => {
                   if (!path) return;
                   p.onSavePath(removeSegment(path, selectedSegment.id));
@@ -281,7 +294,6 @@ export function RoomView(p: Props) {
                 size="sm"
                 variant="ghost"
                 className="h-6 px-2"
-                title="Delete this movement path"
                 onClick={() => {
                   p.onDeletePath(path.id);
                   setSelectedSegmentId(null);

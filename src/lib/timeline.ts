@@ -294,3 +294,13 @@ export const axisOutline = (
   }
   return points.join(" ");
 };
+
+/** Timeline-relative time for a movement clip, wrapping only when repeat is enabled. */
+export const movementPathTime = (
+  elapsedSeconds: number,
+  pathLengthSeconds: number,
+  loop: boolean,
+) => {
+  const elapsed = Math.max(0, elapsedSeconds);
+  return loop && pathLengthSeconds > 0 ? elapsed % pathLengthSeconds : elapsed;
+};
