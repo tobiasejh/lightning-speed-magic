@@ -481,23 +481,11 @@ export function ShowPanel(p: Props) {
                     <Button
                       size="sm"
                       variant={clip.loop ? "default" : "secondary"}
-                      aria-pressed={clip.loop ?? false}
-                      title={
-                        clip.loop
-                          ? "Disable looping for this movement clip"
-                          : "Repeat the movement path until this clip ends"
-                      }
-                      onClick={() =>
-                        patchClip(clip.id, {
-                          loop: !clip.loop,
-                          ...(!clip.loop && movementPath.duration > 0
-                            ? { duration: Math.max(clip.duration, movementPath.duration * 3) }
-                            : {}),
-                        })
-                      }
+                      aria-pressed={!!clip.loop}
+                      title="Repeat this movement path for the full timeline clip"
+                      onClick={() => patchClip(clip.id, { loop: !clip.loop })}
                     >
-                      <Repeat />
-                      {clip.loop ? "Loop on" : "Loop"}
+                      <Repeat /> {clip.loop ? "Loop on" : "Loop off"}
                     </Button>
                     <Button
                       size="sm"

@@ -266,6 +266,41 @@ export function MediaEditor(p: Props) {
                   </Button>
                   <Button
                     size="sm"
+                    variant="secondary"
+                    aria-label="Step one frame backward"
+                    title="Step one frame backward"
+                    onClick={() => {
+                      const v = vidRef.current;
+                      if (v) {
+                        v.pause();
+                        v.currentTime = Math.max(inS, v.currentTime - 1 / 30);
+                        setPlaying(false);
+                      }
+                    }}
+                  >
+                    <ArrowLeft className="size-4" /> Frame
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    aria-label="Step one frame forward"
+                    title="Step one frame forward"
+                    onClick={() => {
+                      const v = vidRef.current;
+                      if (v) {
+                        v.pause();
+                        v.currentTime = Math.min(
+                          outS || duration || Infinity,
+                          v.currentTime + 1 / 30,
+                        );
+                        setPlaying(false);
+                      }
+                    }}
+                  >
+                    Frame <ArrowRight className="size-4" />
+                  </Button>
+                  <Button
+                    size="sm"
                     variant="outline"
                     title="Create a new media item from the selected range"
                     onClick={() => p.onSaveClip(item.id, crop ?? undefined, inS, outS || duration)}

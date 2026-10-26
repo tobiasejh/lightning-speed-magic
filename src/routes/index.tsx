@@ -5,8 +5,8 @@ import {
   Eye,
   EyeOff,
   FlipHorizontal2,
-  FlipVertical2,
   GripVertical,
+  FlipVertical2,
   Maximize2,
   Mic,
   MicOff,
@@ -56,12 +56,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LabeledRow } from "@/components/common/LabeledRow";
 import { supabase } from "@/integrations/supabase/client";
 import { MicAnalyser, silentLevels, type AudioLevelProvider } from "@/lib/audio";
-import { SpatialEngine } from "@/lib/audio-engine";
 import { formatTime } from "@/lib/format";
+import {
+  panStageTransform,
+  stagePointFromClient,
+  zoomStageTransformAt,
+} from "@/lib/stage-transform";
+import { SpatialEngine } from "@/lib/audio-engine";
 import { History, type ShowSnapshot } from "@/lib/history";
 import { snapCandidates, snapPoint } from "@/lib/snap";
 import {
   activeClipsAt,
+  movementPathTime,
   patchSegment,
   positionOnPath,
   timelineLength,
@@ -248,7 +254,6 @@ export function Studio() {
   const [timelineTracks, setTimelineTracks] = useState<TimelineTrack[]>(defaultTimelineTracks);
   const [timelineClips, setTimelineClips] = useState<TimelineClip[]>([]);
   const [soundPaths, setSoundPaths] = useState<SoundPath[]>([]);
-  const [defaultPathLengthMs, setDefaultPathLengthMs] = useState(1000);
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [activePathId, setActivePathId] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -274,6 +279,7 @@ export function Studio() {
   const [maxChannels, setMaxChannels] = useState(2);
   const [loaded, setLoaded] = useState(false);
   const [menuWidth, setMenuWidth] = useState(DEFAULT_MENU_WIDTH);
+  const [defaultPathLengthMs, setDefaultPathLengthMs] = useState(1000);
 
   const micRef = useRef<MicAnalyser | null>(null);
   const engineRef = useRef<SpatialEngine | null>(null);
@@ -310,6 +316,23 @@ export function Studio() {
   }, [surfaces]);
 
   useEffect(() => {
+    const storedLength = window.localStorage.getItem(DEFAULT_PATH_LENGTH_KEY);
+    if (storedLength === null) return;
+    const savedLength = Number(storedLength);
+    if (Number.isFinite(savedLength) && savedLength >= 0) setDefaultPathLengthMs(savedLength);
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(DEFAULT_PATH_LENGTH_KEY, String(defaultPathLengthMs));
+  }, [defaultPathLengthMs]);
+
+  useEffect(() => {
+    setSourceTab(
+      view === "editor" ? "media" : view === "room" || view === "effects" ? "sound" : "visuals",
+    );
+  }, [view]);
+
+  useEffect(() => {
     const storedWidth = window.localStorage.getItem(MENU_WIDTH_KEY);
     if (storedWidth === null) return;
     const savedWidth = Number(storedWidth);
@@ -317,21 +340,6 @@ export function Studio() {
       setMenuWidth(Math.max(MIN_MENU_WIDTH, Math.min(MAX_MENU_WIDTH, savedWidth)));
     }
   }, []);
-
-  useEffect(() => {
-    const storedLength = window.localStorage.getItem(DEFAULT_PATH_LENGTH_KEY);
-    if (storedLength === null) return;
-    const savedLength = Number(storedLength);
-    if (Number.isFinite(savedLength) && savedLength >= 0) {
-      setDefaultPathLengthMs(savedLength);
-    }
-  }, []);
-
-  useEffect(() => {
-    setSourceTab(
-      view === "editor" ? "media" : view === "room" || view === "effects" ? "sound" : "visuals",
-    );
-  }, [view]);
 
   const resizeMenu = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -356,6 +364,30 @@ export function Studio() {
   };
 
   const selected = surfaces.find((s) => s.id === selectedId) ?? surfaces[0] ?? null;
+
+  const stagePoint = (clientX: number, clientY: number, rect: DOMRect): Pt =>
+    stagePointFromClient(
+      clientX,
+      clientY,
+      rect.left,
+      rect.top,
+      rect.width,
+      rect.height,
+      stageTransform,
+    );
+
+  const zoomStageAt = (scale: number, anchorX: number, anchorY: number) => {
+    const rect = stageRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setStageTransform((current) =>
+      zoomStageTransformAt(current, scale, anchorX, anchorY, rect.width, rect.height),
+    );
+  };
+  const zoomStageBy = (delta: number) => {
+    const rect = stageRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    zoomStageAt(stageTransform.scale + delta, rect.width / 2, rect.height / 2);
+  };
 
   // ----- undo / redo -----
   const history = useRef(new History());
@@ -509,27 +541,27 @@ export function Studio() {
   }, []);
 
   useEffect(() => {
-    const el = stageRef.current;
-    if (!el) return;
+    const element = stageRef.current;
+    if (!element) return;
     const onWheel = (event: WheelEvent) => {
       if (view !== "stage" || fullscreen) return;
       event.preventDefault();
-      const rect = el.getBoundingClientRect();
+      const rect = element.getBoundingClientRect();
       const anchorX = event.clientX - rect.left;
       const anchorY = event.clientY - rect.top;
-      setStageTransform((current) => {
-        const scale = Math.max(1, Math.min(4, current.scale * Math.exp(-event.deltaY * 0.0015)));
-        const x = anchorX - ((anchorX - current.x) / current.scale) * scale;
-        const y = anchorY - ((anchorY - current.y) / current.scale) * scale;
-        return {
-          scale,
-          x: Math.max(stage.w * (1 - scale), Math.min(0, x)),
-          y: Math.max(stage.h * (1 - scale), Math.min(0, y)),
-        };
-      });
+      setStageTransform((current) =>
+        zoomStageTransformAt(
+          current,
+          current.scale * Math.exp(-event.deltaY * 0.0015),
+          anchorX,
+          anchorY,
+          rect.width,
+          rect.height,
+        ),
+      );
     };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
+    element.addEventListener("wheel", onWheel, { passive: false });
+    return () => element.removeEventListener("wheel", onWheel);
   }, [fullscreen, stage.h, stage.w, view]);
 
   useEffect(() => {
@@ -1164,36 +1196,36 @@ export function Studio() {
     if (channelRef.current) sendMedia(channelRef.current, [item]);
   };
 
-  const dragSurface = (surface: Surface) => (e: React.PointerEvent<SVGPolygonElement>) => {
+  const dragSurface = (surface: Surface) => (event: React.PointerEvent<SVGPolygonElement>) => {
     setSelectedId(surface.id);
-    if (!mapping || e.button !== 0) return;
-    e.preventDefault();
+    if (!mapping || event.button !== 0) return;
+    event.preventDefault();
     const rect = stageRef.current?.getBoundingClientRect();
     if (!rect || !rect.width || !rect.height) return;
-    const target = e.currentTarget;
-    target.setPointerCapture(e.pointerId);
+    const target = event.currentTarget;
+    const pointerId = event.pointerId;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    target.setPointerCapture(pointerId);
     const minX = Math.min(...surface.corners.map((corner) => corner.x));
     const maxX = Math.max(...surface.corners.map((corner) => corner.x));
     const minY = Math.min(...surface.corners.map((corner) => corner.y));
     const maxY = Math.max(...surface.corners.map((corner) => corner.y));
-    const move = (ev: PointerEvent) => {
+    const move = (pointerEvent: PointerEvent) => {
       const dx = Math.max(
         -minX,
-        Math.min(1 - maxX, (ev.clientX - e.clientX) / (rect.width * stageTransform.scale)),
+        Math.min(1 - maxX, (pointerEvent.clientX - startX) / (rect.width * stageTransform.scale)),
       );
       const dy = Math.max(
         -minY,
-        Math.min(1 - maxY, (ev.clientY - e.clientY) / (rect.height * stageTransform.scale)),
+        Math.min(1 - maxY, (pointerEvent.clientY - startY) / (rect.height * stageTransform.scale)),
       );
-      setSurfaces((prev) =>
-        prev.map((current) =>
+      setSurfaces((previous) =>
+        previous.map((current) =>
           current.id === surface.id
             ? {
                 ...current,
-                corners: surface.corners.map((corner) => ({
-                  x: corner.x + dx,
-                  y: corner.y + dy,
-                })),
+                corners: surface.corners.map((corner) => ({ x: corner.x + dx, y: corner.y + dy })),
               }
             : current,
         ),
@@ -1221,10 +1253,7 @@ export function Studio() {
     const pts = outlineStagePoints(selected.corners, outline.length > 4 ? outline : undefined);
     const a = pts[edge]!;
     const b = pts[(edge + 1) % pts.length]!;
-    const p = {
-      x: (e.clientX - rect.left - stageTransform.x) / (rect.width * stageTransform.scale),
-      y: (e.clientY - rect.top - stageTransform.y) / (rect.height * stageTransform.scale),
-    };
+    const p = stagePoint(e.clientX, e.clientY, rect);
     const { point } = closestOnSegment(p, a, b);
     const uv = stageToUv(selected.corners, point);
     const next = [...outline];
@@ -1245,18 +1274,15 @@ export function Studio() {
       excludeOutlineIndex: index,
     });
     const move = (ev: PointerEvent) => {
-      let p: Pt = {
-        x: (ev.clientX - rect.left - stageTransform.x) / (rect.width * stageTransform.scale),
-        y: (ev.clientY - rect.top - stageTransform.y) / (rect.height * stageTransform.scale),
-      };
+      let p = stagePoint(ev.clientX, ev.clientY, rect);
       let flash: Pt | null = null;
       if (snap && !ev.shiftKey) {
-        const r = snapPoint(p, candidates, {
+        const result = snapPoint(p, candidates, {
           w: rect.width * stageTransform.scale,
           h: rect.height * stageTransform.scale,
         });
-        p = r.point;
-        flash = r.snapped ? r.target : null;
+        p = result.point;
+        flash = result.snapped ? result.target : null;
       }
       p = clampPoint(p);
       setSnapFlash(flash);
@@ -1274,10 +1300,12 @@ export function Studio() {
     const up = () => {
       target.removeEventListener("pointermove", move);
       target.removeEventListener("pointerup", up);
+      target.removeEventListener("pointercancel", up);
       setSnapFlash(null);
     };
     target.addEventListener("pointermove", move);
     target.addEventListener("pointerup", up);
+    target.addEventListener("pointercancel", up);
   };
 
   const removeOutlinePoint = (index: number) => (e: React.MouseEvent) => {
@@ -1296,10 +1324,7 @@ export function Studio() {
     if (!rect) return;
     const candidates = snapCandidates(surfaces, selected.id);
     const move = (ev: PointerEvent) => {
-      let p: Pt = {
-        x: (ev.clientX - rect.left - stageTransform.x) / (rect.width * stageTransform.scale),
-        y: (ev.clientY - rect.top - stageTransform.y) / (rect.height * stageTransform.scale),
-      };
+      let p: Pt = stagePoint(ev.clientX, ev.clientY, rect);
       let flash: Pt | null = null;
       if (snap && !ev.shiftKey) {
         const r = snapPoint(p, candidates, {
@@ -1319,8 +1344,8 @@ export function Studio() {
             ...s,
             corners: s.lockAspect
               ? lockRectAspect(moved, index, (s.renderW || 16) / (s.renderH || 9), {
-                  w: rect.width,
-                  h: rect.height,
+                  w: rect.width * stageTransform.scale,
+                  h: rect.height * stageTransform.scale,
                 })
               : moved,
           };
@@ -1334,25 +1359,6 @@ export function Studio() {
     };
     target.addEventListener("pointermove", move);
     target.addEventListener("pointerup", up);
-  };
-
-  const zoomStageAt = (scale: number, anchorX: number, anchorY: number) => {
-    setStageTransform((current) => {
-      const nextScale = Math.max(1, Math.min(4, scale));
-      const x = anchorX - ((anchorX - current.x) / current.scale) * nextScale;
-      const y = anchorY - ((anchorY - current.y) / current.scale) * nextScale;
-      return {
-        scale: nextScale,
-        x: Math.max(stage.w * (1 - nextScale), Math.min(0, x)),
-        y: Math.max(stage.h * (1 - nextScale), Math.min(0, y)),
-      };
-    });
-  };
-
-  const zoomStageBy = (delta: number) => {
-    const rect = stageRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    zoomStageAt(stageTransform.scale + delta, rect.width / 2, rect.height / 2);
   };
 
   const groups = useMemo(() => {
@@ -1417,7 +1423,7 @@ export function Studio() {
           const path = soundPaths.find((item) => item.id === clip.pathId);
           if (!path) continue;
           const elapsed = Math.max(0, time - clip.start);
-          const pathTime = clip.loop && path.duration > 0 ? elapsed % path.duration : elapsed;
+          const pathTime = movementPathTime(elapsed, path.duration || 0, !!clip.loop);
           const position = positionOnPath(path, pathTime);
           if (position) {
             engineRef.current?.setPosition(clip.soundId, position);
@@ -1470,22 +1476,9 @@ export function Studio() {
     applyTimelineAt(showTimeRef.current, false);
   };
 
-  togglePlaybackRef.current = () => {
-    const editorPreview = stageRef.current?.querySelector<HTMLVideoElement>(
-      "[data-media-editor-preview]",
-    );
-    const soundsPlaying = sounds.some((sound) => sound.playing);
-    const editorPreviewPlaying = !!editorPreview && !editorPreview.paused;
-    if (showPlaying || soundsPlaying || editorPreviewPlaying) {
-      if (soundsPlaying) stopAll();
-      if (showPlaying) pauseShow();
-      editorPreview?.pause();
-    } else {
-      if (sounds.length) playAll();
-      if (timelineClips.length) runShow();
-      if (editorPreview) void editorPreview.play().catch(() => undefined);
-    }
-  };
+  useEffect(() => {
+    togglePlaybackRef.current = showPlaying ? pauseShow : runShow;
+  }, [showPlaying, timelineClips, showTime]);
 
   const stopShow = () => {
     setShowPlaying(false);
@@ -1623,7 +1616,8 @@ export function Studio() {
         <CollapsibleSection
           title="Project"
           className="space-y-2"
-          expandedForView={view === "stage"}
+          contentClassName="space-y-2"
+          expandedForView={view !== "timeline"}
         >
           <ProjectsMenu
             name={projectName}
@@ -1658,12 +1652,7 @@ export function Studio() {
           />
         </CollapsibleSection>
 
-        <CollapsibleSection
-          title="Timeline"
-          className="sticky top-0 z-30 -mx-4 -mt-5 border-y border-border bg-card/95 px-4 py-2 backdrop-blur"
-          contentClassName="space-y-1.5"
-          expandedForView={view === "timeline"}
-        >
+        <section className="sticky top-0 z-30 -mx-4 -mt-5 border-y border-border bg-card/95 px-4 py-2 backdrop-blur">
           <div className="flex items-center gap-1.5">
             <span className="ml-auto font-mono text-[10px] tabular-nums text-muted-foreground">
               {formatTime(Math.min(showTime, timelineLength(timelineClips)))} /{" "}
@@ -1693,7 +1682,7 @@ export function Studio() {
             </Button>
           </div>
           <Slider
-            thumbLabel="Timeline position"
+            aria-label="Timeline position"
             value={[Math.min(showTime, timelineLength(timelineClips))]}
             min={0}
             max={Math.max(0.01, timelineLength(timelineClips))}
@@ -1701,7 +1690,7 @@ export function Studio() {
             disabled={!timelineClips.length}
             onValueChange={([time = 0]) => seekShow(time)}
           />
-        </CollapsibleSection>
+        </section>
 
         {/* Output */}
         <CollapsibleSection
@@ -1839,52 +1828,39 @@ export function Studio() {
               <Plus className="size-4" /> Add
             </Button>
           }
-          onDragOver={(event) => {
-            if (!event.dataTransfer.types.includes("text/plain")) return;
-            const rows = Array.from(
-              event.currentTarget.querySelectorAll<HTMLLIElement>("[data-surface-id]"),
-            );
-            const eventTarget = event.target;
-            const rowFromTarget =
-              eventTarget instanceof Element
-                ? eventTarget.closest<HTMLLIElement>("[data-surface-id]")
-                : null;
-            const row =
-              rowFromTarget ??
-              rows.find((item) => {
-                const rect = item.getBoundingClientRect();
-                return event.clientY >= rect.top && event.clientY <= rect.bottom;
-              });
-            const targetId = row?.dataset["surfaceId"];
-            if (!row || !targetId) return;
-            event.preventDefault();
-            event.dataTransfer.dropEffect = "move";
-            const rect = row.getBoundingClientRect();
-            setDropSurface({
-              id: targetId,
-              position: event.clientY < rect.top + rect.height / 2 ? "before" : "after",
-            });
-          }}
-          onDrop={(event) => {
-            event.preventDefault();
-            const sourceId = event.dataTransfer.getData("text/plain") || draggedSurfaceId;
-            if (sourceId && dropSurface)
-              reorderSurface(sourceId, dropSurface.id, dropSurface.position);
-          }}
         >
           <ul className="space-y-2">
             {surfaces.map((s, idx) => (
               <li
                 key={s.id}
                 data-surface-id={s.id}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  if (!draggedSurfaceId || draggedSurfaceId === s.id) return;
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  setDropSurface({
+                    id: s.id,
+                    position: event.clientY < rect.top + rect.height / 2 ? "before" : "after",
+                  });
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  const sourceId = event.dataTransfer.getData("text/plain") || draggedSurfaceId;
+                  if (!sourceId) return;
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  const position = event.clientY < rect.top + rect.height / 2 ? "before" : "after";
+                  reorderSurface(sourceId, s.id, position);
+                }}
                 className={`rounded-lg border p-3 transition-colors ${
                   dropSurface?.id === s.id
                     ? dropSurface.position === "before"
                       ? "border-t-2 border-t-primary"
                       : "border-b-2 border-b-primary"
-                    : selected?.id === s.id
-                      ? "border-primary bg-primary/10"
-                      : "border-border hover:bg-accent"
+                    : ""
+                } ${draggedSurfaceId === s.id ? "opacity-50" : ""} ${
+                  selected?.id === s.id
+                    ? "border-primary bg-primary/10"
+                    : "border-border hover:bg-accent"
                 }`}
               >
                 <div className="flex items-center gap-2">
@@ -2149,10 +2125,102 @@ export function Studio() {
           </ul>
         </CollapsibleSection>
 
+        {/* Movement paths */}
+        <CollapsibleSection
+          title="Movement paths"
+          className="space-y-2"
+          contentClassName="space-y-2"
+          expandedForView={view === "room" || view === "timeline"}
+        >
+          <LabeledRow label="Default point length" value={`${defaultPathLengthMs} ms`}>
+            <Slider
+              aria-label="Default movement point length"
+              value={[defaultPathLengthMs]}
+              min={0}
+              max={5000}
+              step={50}
+              onValueChange={([value = 1000]) => setDefaultPathLengthMs(value)}
+            />
+          </LabeledRow>
+          {soundPaths.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              Add movement points in the Room view to create a path.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {soundPaths.map((path) => {
+                const pathSound = sounds.find((sound) => sound.id === path.soundId);
+                return (
+                  <li
+                    key={path.id}
+                    className={`rounded-md border p-2 ${activePathId === path.id ? "border-primary bg-primary/10" : "border-border"}`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <button
+                        className="min-w-0 flex-1 text-left"
+                        onClick={() => {
+                          setActivePathId(path.id);
+                          setSelectedSoundId(path.soundId);
+                          setView("room");
+                        }}
+                      >
+                        <span className="block truncate text-xs font-medium">{path.name}</span>
+                        <span className="block truncate text-[10px] text-muted-foreground">
+                          {pathSound?.name ?? "Missing sound"} · {path.nodes.length} points ·{" "}
+                          {path.duration.toFixed(2)}s
+                        </span>
+                      </button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="size-7 text-destructive"
+                        aria-label={`Delete ${pathSound?.name ?? path.name} path`}
+                        onClick={() => deletePath(path.id)}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </div>
+                    {path.segments.length > 0 && (
+                      <ul className="mt-2 space-y-1">
+                        {path.segments.map((segment, index) => (
+                          <li key={segment.id} className="flex items-center gap-2">
+                            <span className="w-20 shrink-0 text-[10px] text-muted-foreground">
+                              Point {index + 1} → {index + 2}
+                            </span>
+                            <Input
+                              type="number"
+                              min={0}
+                              step={50}
+                              className="h-7"
+                              aria-label={`Length from point ${index + 1} to point ${index + 2}`}
+                              value={Math.round(segment.durationMs)}
+                              onChange={(event) =>
+                                saveSoundPath(
+                                  withDuration(
+                                    patchSegment(path, segment.id, {
+                                      durationMs: Math.max(0, Number(event.target.value) || 0),
+                                    }),
+                                  ),
+                                )
+                              }
+                            />
+                            <span className="text-[10px] text-muted-foreground">ms</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </CollapsibleSection>
+
         {/* Sources */}
         <CollapsibleSection
           title={`Source for ${selected?.name ?? "surface"}`}
           className="space-y-2 pb-4"
+          contentClassName="space-y-2"
           expandedForView={view !== "timeline"}
         >
           <Tabs value={sourceTab} onValueChange={setSourceTab}>
@@ -2497,53 +2565,51 @@ export function Studio() {
         <div
           className="relative min-h-0 flex-1 overflow-hidden bg-black"
           ref={stageRef}
-          onPointerDownCapture={(e) => {
-            if (view !== "stage" || fullscreen || e.button !== 1) return;
-            e.preventDefault();
-            e.stopPropagation();
+          onPointerDown={(event) => {
+            if (view !== "stage" || event.button !== 1 || stageTransform.scale <= 1) return;
+            event.preventDefault();
+            event.currentTarget.setPointerCapture(event.pointerId);
             stagePanRef.current = {
-              pointerId: e.pointerId,
-              startX: e.clientX,
-              startY: e.clientY,
+              pointerId: event.pointerId,
+              startX: event.clientX,
+              startY: event.clientY,
               offsetX: stageTransform.x,
               offsetY: stageTransform.y,
               scale: stageTransform.scale,
             };
-            e.currentTarget.setPointerCapture(e.pointerId);
           }}
-          onPointerMove={(e) => {
+          onPointerMove={(event) => {
             const pan = stagePanRef.current;
-            if (!pan || pan.pointerId !== e.pointerId) return;
-            e.preventDefault();
-            setStageTransform((current) => ({
-              ...current,
-              x: Math.max(
-                stage.w * (1 - pan.scale),
-                Math.min(0, pan.offsetX + e.clientX - pan.startX),
+            if (!pan || pan.pointerId !== event.pointerId) return;
+            setStageTransform((current) =>
+              panStageTransform(
+                { ...current, scale: pan.scale },
+                pan.offsetX + event.clientX - pan.startX,
+                pan.offsetY + event.clientY - pan.startY,
+                stage.w,
+                stage.h,
               ),
-              y: Math.max(
-                stage.h * (1 - pan.scale),
-                Math.min(0, pan.offsetY + e.clientY - pan.startY),
-              ),
-            }));
+            );
           }}
-          onPointerUp={(e) => {
-            if (stagePanRef.current?.pointerId === e.pointerId) stagePanRef.current = null;
+          onPointerUp={(event) => {
+            if (stagePanRef.current?.pointerId === event.pointerId) stagePanRef.current = null;
           }}
-          onPointerCancel={(e) => {
-            if (stagePanRef.current?.pointerId === e.pointerId) stagePanRef.current = null;
+          onPointerCancel={(event) => {
+            if (stagePanRef.current?.pointerId === event.pointerId) stagePanRef.current = null;
+          }}
+          onAuxClick={(event) => {
+            if (event.button === 1) event.preventDefault();
           }}
         >
           <div
             className="absolute inset-0"
-            style={
-              view === "stage" && !fullscreen
-                ? {
-                    transform: `translate(${stageTransform.x}px, ${stageTransform.y}px) scale(${stageTransform.scale})`,
-                    transformOrigin: "top left",
-                  }
-                : undefined
-            }
+            style={{
+              transform:
+                view === "stage" && !fullscreen
+                  ? `translate(${stageTransform.x}px, ${stageTransform.y}px) scale(${stageTransform.scale})`
+                  : undefined,
+              transformOrigin: "top left",
+            }}
           >
             {[...displaySurfaces].reverse().map((s) => (
               <SurfaceLayer
@@ -2569,6 +2635,7 @@ export function Studio() {
                 paths={soundPaths}
                 activePathId={activePathId}
                 defaultPathLengthMs={defaultPathLengthMs}
+                onDefaultPathLengthMs={setDefaultPathLengthMs}
                 onSelect={setSelectedSoundId}
                 onMoveSound={(id, position) => patchSound(id, { position })}
                 onMoveListener={(listener) => patchRoom({ listener })}
@@ -2708,7 +2775,7 @@ export function Studio() {
                       </text>
                     </g>
                   ))}
-                {[...surfaces]
+                {surfaces
                   .reverse()
                   .filter((s) => s.visible)
                   .map((s) => (
@@ -2812,8 +2879,6 @@ function CollapsibleSection({
   className,
   contentClassName,
   action,
-  onDragOver,
-  onDrop,
   expandedForView,
 }: {
   title: ReactNode;
@@ -2821,8 +2886,6 @@ function CollapsibleSection({
   className?: string;
   contentClassName?: string;
   action?: ReactNode;
-  onDragOver?: DragEventHandler<HTMLElement>;
-  onDrop?: DragEventHandler<HTMLElement>;
   expandedForView?: boolean;
 }) {
   const [open, setOpen] = useState(expandedForView ?? true);
@@ -2833,7 +2896,7 @@ function CollapsibleSection({
   }, [viewExpanded]);
 
   return (
-    <section className={className} onDragOver={onDragOver} onDrop={onDrop}>
+    <section className={className}>
       <div className="flex items-center justify-between gap-2">
         <button
           type="button"
