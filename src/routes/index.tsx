@@ -4,11 +4,9 @@ import {
   ChevronDown,
   Eye,
   EyeOff,
-  ChevronDown,
   FlipHorizontal2,
   GripVertical,
   FlipVertical2,
-  GripVertical,
   Maximize2,
   Mic,
   MicOff,
@@ -65,7 +63,6 @@ import {
   zoomStageTransformAt,
 } from "@/lib/stage-transform";
 import { SpatialEngine } from "@/lib/audio-engine";
-import { formatTime } from "@/lib/format";
 import { History, type ShowSnapshot } from "@/lib/history";
 import { snapCandidates, snapPoint } from "@/lib/snap";
 import {
@@ -181,7 +178,6 @@ const DEFAULT_PATH_LENGTH_KEY = "prism-default-path-length";
 const DEFAULT_MENU_WIDTH = 352;
 const MIN_MENU_WIDTH = 280;
 const MAX_MENU_WIDTH = 640;
-const DEFAULT_PATH_LENGTH_KEY = "prism-default-path-length-ms";
 
 /** Fill in fields older saved surfaces may lack. */
 const upgradeSurface = (
@@ -258,7 +254,6 @@ export function Studio() {
   const [timelineTracks, setTimelineTracks] = useState<TimelineTrack[]>(defaultTimelineTracks);
   const [timelineClips, setTimelineClips] = useState<TimelineClip[]>([]);
   const [soundPaths, setSoundPaths] = useState<SoundPath[]>([]);
-  const [defaultPathLengthMs, setDefaultPathLengthMs] = useState(1000);
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [activePathId, setActivePathId] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -285,20 +280,6 @@ export function Studio() {
   const [loaded, setLoaded] = useState(false);
   const [menuWidth, setMenuWidth] = useState(DEFAULT_MENU_WIDTH);
   const [defaultPathLengthMs, setDefaultPathLengthMs] = useState(1000);
-  const [draggedSurfaceId, setDraggedSurfaceId] = useState<string | null>(null);
-  const [dropSurface, setDropSurface] = useState<{
-    id: string;
-    position: "before" | "after";
-  } | null>(null);
-  const [stageTransform, setStageTransform] = useState({ scale: 1, x: 0, y: 0 });
-  const stagePanRef = useRef<{
-    pointerId: number;
-    startX: number;
-    startY: number;
-    offsetX: number;
-    offsetY: number;
-    scale: number;
-  } | null>(null);
 
   const micRef = useRef<MicAnalyser | null>(null);
   const engineRef = useRef<SpatialEngine | null>(null);
@@ -360,21 +341,6 @@ export function Studio() {
     }
   }, []);
 
-  useEffect(() => {
-    const storedLength = window.localStorage.getItem(DEFAULT_PATH_LENGTH_KEY);
-    if (storedLength === null) return;
-    const savedLength = Number(storedLength);
-    if (Number.isFinite(savedLength) && savedLength >= 0) {
-      setDefaultPathLengthMs(savedLength);
-    }
-  }, []);
-
-  useEffect(() => {
-    setSourceTab(
-      view === "editor" ? "media" : view === "room" || view === "effects" ? "sound" : "visuals",
-    );
-  }, [view]);
-
   const resizeMenu = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
     const handle = event.currentTarget;
@@ -421,23 +387,6 @@ export function Studio() {
     const rect = stageRef.current?.getBoundingClientRect();
     if (!rect) return;
     zoomStageAt(stageTransform.scale + delta, rect.width / 2, rect.height / 2);
-  };
-
-  const reorderSurface = (sourceId: string, targetId: string, position: "before" | "after") => {
-    if (sourceId === targetId) return;
-    setSurfaces((previous) => {
-      const from = previous.findIndex((surface) => surface.id === sourceId);
-      const target = previous.findIndex((surface) => surface.id === targetId);
-      if (from < 0 || target < 0) return previous;
-      const next = [...previous];
-      const [moved] = next.splice(from, 1);
-      if (!moved) return previous;
-      const adjustedTarget = next.findIndex((surface) => surface.id === targetId);
-      next.splice(adjustedTarget + (position === "after" ? 1 : 0), 0, moved);
-      return next;
-    });
-    setDraggedSurfaceId(null);
-    setDropSurface(null);
   };
 
   // ----- undo / redo -----
@@ -1410,25 +1359,6 @@ export function Studio() {
     };
     target.addEventListener("pointermove", move);
     target.addEventListener("pointerup", up);
-  };
-
-  const zoomStageAt = (scale: number, anchorX: number, anchorY: number) => {
-    setStageTransform((current) => {
-      const nextScale = Math.max(1, Math.min(4, scale));
-      const x = anchorX - ((anchorX - current.x) / current.scale) * nextScale;
-      const y = anchorY - ((anchorY - current.y) / current.scale) * nextScale;
-      return {
-        scale: nextScale,
-        x: Math.max(stage.w * (1 - nextScale), Math.min(0, x)),
-        y: Math.max(stage.h * (1 - nextScale), Math.min(0, y)),
-      };
-    });
-  };
-
-  const zoomStageBy = (delta: number) => {
-    const rect = stageRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    zoomStageAt(stageTransform.scale + delta, rect.width / 2, rect.height / 2);
   };
 
   const groups = useMemo(() => {
