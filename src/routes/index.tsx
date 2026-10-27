@@ -128,6 +128,7 @@ import {
 import { visuals } from "@/lib/visuals";
 import { decodeWaveform } from "@/lib/waveform";
 import innopixel_logo from "@/assets/innopixel_logo.png";
+import packageJson from "../../package.json";
 
 const title = "Prism — Projection Mapping in Your Browser";
 const description =
@@ -261,7 +262,6 @@ export function Studio() {
   const [movementPositions, setMovementPositions] = useState<Record<string, Vec3>>({});
   const [showPlaying, setShowPlaying] = useState(false);
   const [showTime, setShowTime] = useState(0);
-
   const [mapping, setMapping] = useState(true);
   const [snap, setSnap] = useState(true);
   const [view, setView] = useState<StageView>("stage");
@@ -1610,6 +1610,9 @@ export function Studio() {
           </h1>
           <p className="mt-1 text-xs text-muted-foreground">
             Projection mapping and spatial sound in one application. Made by Innopixel.
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Version {packageJson.version}
           </p>
         </header>
 
