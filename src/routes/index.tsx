@@ -64,6 +64,15 @@ import {
 } from "@/lib/stage-transform";
 import { SpatialEngine } from "@/lib/audio-engine";
 import { History, type ShowSnapshot } from "@/lib/history";
+import {
+  createVideo,
+  releaseMediaElements,
+  releaseVideo,
+  unparkVideo,
+  updateVideoPlayback,
+  usedVideoIds,
+  videoOwners,
+} from "@/lib/media-playback";
 import { snapCandidates, snapPoint } from "@/lib/snap";
 import {
   activeClipsAt,
@@ -176,6 +185,7 @@ const RESOLUTION_PRESETS = [
 
 const MENU_WIDTH_KEY = "prism-menu-width";
 const DEFAULT_PATH_LENGTH_KEY = "prism-default-path-length";
+const SHOW_MODE_KEY = "prism-show-mode";
 const DEFAULT_MENU_WIDTH = 352;
 const MIN_MENU_WIDTH = 280;
 const MAX_MENU_WIDTH = 640;
@@ -198,13 +208,8 @@ const defaultTimelineTracks = (): TimelineTrack[] => [
 function mountMedia(meta: Omit<MediaItem, "url">, blob: Blob) {
   const url = URL.createObjectURL(blob);
   if (meta.kind === "video") {
-    const v = document.createElement("video");
-    v.src = url;
-    v.loop = true;
-    v.muted = true;
-    v.playsInline = true;
+    const v = createVideo(url);
     if (meta.trimStart) v.currentTime = meta.trimStart;
-    void v.play();
     mediaElements.set(meta.id, v);
   } else {
     const img = new Image();
@@ -280,6 +285,20 @@ export function Studio() {
   const [loaded, setLoaded] = useState(false);
   const [menuWidth, setMenuWidth] = useState(DEFAULT_MENU_WIDTH);
   const [defaultPathLengthMs, setDefaultPathLengthMs] = useState(1000);
+  const [showMode, setShowMode] = useState(false);
+
+  // The timeline, effects and media editor panels cover the stage, and show mode turns its
+  // preview off. Fullscreen always shows it: that is the output when no projector window is used.
+  const stageVisible =
+    fullscreen || (!showMode && view !== "timeline" && view !== "effects" && view !== "editor");
+  const stageVisibleRef = useRef(stageVisible);
+  stageVisibleRef.current = stageVisible;
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const soundsRef = useRef(sounds);
+  soundsRef.current = sounds;
+  // videos being played just long enough to find out whether they have an audio track
+  const probingVideos = useRef(new Set<string>());
 
   const micRef = useRef<MicAnalyser | null>(null);
   const engineRef = useRef<SpatialEngine | null>(null);
@@ -294,6 +313,7 @@ export function Studio() {
   // playing, so the whole editor does not re-render on every animation frame.
   const showTimeRef = useRef(0);
   const movementUiAt = useRef(0);
+  const movementAudioAt = useRef(0);
   const setShowTimeNow = useCallback((t: number) => {
     showTimeRef.current = t;
     setShowTime(t);
@@ -325,6 +345,15 @@ export function Studio() {
   useEffect(() => {
     window.localStorage.setItem(DEFAULT_PATH_LENGTH_KEY, String(defaultPathLengthMs));
   }, [defaultPathLengthMs]);
+
+  useEffect(() => {
+    setShowMode(window.localStorage.getItem(SHOW_MODE_KEY) === "1");
+  }, []);
+
+  const toggleShowMode = (on: boolean) => {
+    setShowMode(on);
+    window.localStorage.setItem(SHOW_MODE_KEY, on ? "1" : "0");
+  };
 
   useEffect(() => {
     setSourceTab(
@@ -498,6 +527,24 @@ export function Studio() {
     [surfaces, timelineSurfaceSources],
   );
 
+  const surfaceVideoOwners = useMemo(() => videoOwners(displaySurfaces), [displaySurfaces]);
+  const stageGlobals = useMemo(
+    () =>
+      view !== "stage" && !fullscreen
+        ? { ...globals, brightness: globals.brightness * 0.35 }
+        : globals,
+    [globals, view, fullscreen],
+  );
+
+  // only changes when a clip starts or stops, not on every tick of the show clock
+  const activeClipIds = useMemo(
+    () =>
+      activeClipsAt(timelineTracks, timelineClips, showTime)
+        .map((clip) => clip.id)
+        .join(),
+    [showTime, timelineClips, timelineTracks],
+  );
+
   const displaySounds = useMemo(
     () =>
       sounds.map((sound) => {
@@ -510,9 +557,13 @@ export function Studio() {
   const reverbRef = useRef(reverb);
   reverbRef.current = reverb;
 
+  const reverbNeeded = timelineClips.some((clip) => (clip.reverbSend ?? 0) > 0);
+  const reverbNeededRef = useRef(reverbNeeded);
+  reverbNeededRef.current = reverbNeeded;
+
   const engine = useCallback(() => {
     if (!engineRef.current) {
-      engineRef.current = new SpatialEngine(room, reverbRef.current);
+      engineRef.current = new SpatialEngine(room, reverbRef.current, reverbNeededRef.current);
       setMaxChannels(engineRef.current.maxChannels);
     }
     return engineRef.current;
@@ -574,7 +625,7 @@ export function Studio() {
     return () => {
       micRef.current?.stop();
       engineRef.current?.destroy();
-      mediaElements.clear();
+      releaseMediaElements();
       channelRef.current?.postMessage({ type: "bye" } satisfies SyncMessage);
       channelRef.current?.close();
     };
@@ -602,12 +653,21 @@ export function Studio() {
     engineRef.current?.applyReverb(reverb);
   }, [reverb]);
 
+  useEffect(() => {
+    engineRef.current?.setReverbNeeded(reverbNeeded);
+  }, [reverbNeeded]);
+
   // ----- projects -----
   const applyProject = useCallback(
     async (project: Project, b: BlobMap) => {
       engineRef.current?.destroy();
       engineRef.current = null;
-      mediaElements.clear();
+      // the previous show's videos must not keep decoding here or in the projector windows
+      channelRef.current?.postMessage({
+        type: "drop-media",
+        ids: [...mediaElements.keys()],
+      } satisfies SyncMessage);
+      releaseMediaElements();
       blobs.current = new Map(b);
       setProjectId(project.id);
       setProjectName(project.name);
@@ -1006,8 +1066,7 @@ export function Studio() {
         duration: 0,
       };
       blobs.current.set(id, file);
-      const wave = await decodeWaveform(file);
-      added.push(await eng.addSound({ ...item, peaks: wave?.peaks }, file));
+      added.push(await eng.addSound(item, file));
       i++;
     }
     if (added.length) {
@@ -1061,7 +1120,7 @@ export function Studio() {
   };
 
   /** Give a video's own audio track a row in the Sound tab. */
-  const registerVideoSound = (item: MediaItem) => {
+  const registerVideoSound = (item: MediaItem, playing: boolean) => {
     const el = mediaElements.get(item.id);
     if (!(el instanceof HTMLVideoElement)) return;
     const eng = engine();
@@ -1078,7 +1137,7 @@ export function Studio() {
       loop: true,
       mute: false,
       solo: false,
-      playing: true,
+      playing,
       color: SOUND_COLORS[i % SOUND_COLORS.length]!,
       heading: 0,
       duration: el.duration || 0,
@@ -1114,10 +1173,16 @@ export function Studio() {
       if (item.kind !== "video") continue;
       const el = mediaElements.get(item.id);
       if (!(el instanceof HTMLVideoElement)) continue;
+      // the browser only reports an audio track once it has decoded some of it
+      probingVideos.current.add(item.id);
+      unparkVideo(el);
+      void el.play().catch(() => undefined);
       const check = () => {
         const has = videoHasAudio(el);
+        probingVideos.current.delete(item.id);
         setMedia((prev) => prev.map((m) => (m.id === item.id ? { ...m, hasAudio: has } : m)));
-        if (has) registerVideoSound(item);
+        // only the video that went onto a surface starts out playing
+        if (has) registerVideoSound(item, item.id === added[0]?.id);
       };
       if (el.readyState >= 1) setTimeout(check, 300);
       else el.addEventListener("loadeddata", () => setTimeout(check, 300), { once: true });
@@ -1162,9 +1227,9 @@ export function Studio() {
     const item = media.find((m) => m.id === id);
     for (const s of sounds.filter((s) => s.mediaId === id)) removeSound(s.id);
     const el = mediaElements.get(id);
-    if (el instanceof HTMLVideoElement) el.pause();
     mediaElements.delete(id);
     mediaMeta.delete(id);
+    if (el instanceof HTMLVideoElement) releaseVideo(el);
     if (item) URL.revokeObjectURL(item.url);
     const rest = media.filter((m) => m.id !== id);
     if (item && !rest.some((m) => m.blobId === item.blobId)) blobs.current.delete(item.blobId);
@@ -1375,10 +1440,30 @@ export function Studio() {
   };
 
   // ----- v5 timeline -----
+  /**
+   * Does this window need the video to run? Projector windows follow the show clock on their
+   * own, so with the stage out of sight only a video whose sound is routed from here has to.
+   */
+  const editorNeedsVideo = useCallback(
+    (mediaId: string) =>
+      stageVisibleRef.current ||
+      soundsRef.current.some((s) => s.kind === "video" && s.mediaId === mediaId && !s.mute),
+    [],
+  );
+
+  /** Returns whether a clip started or stopped. */
   const applyTimelineAt = useCallback(
     (time: number, playing: boolean) => {
       const active = activeClipsAt(timelineTracks, timelineClips, time);
       const nextIds = new Set(active.map((clip) => clip.id));
+      const clipsChanged =
+        nextIds.size !== activeTimelineClips.current.size ||
+        active.some((clip) => !activeTimelineClips.current.has(clip.id));
+      const nowMs = performance.now();
+      // A moving sound glides between position updates anyway, so 30 a second sounds the
+      // same as every frame and costs half the audio parameter changes.
+      const moveSounds = !playing || nowMs - movementAudioAt.current >= 33;
+      if (moveSounds) movementAudioAt.current = nowMs;
       const activeSoundIds = new Set(
         active
           .filter((clip) => clip.kind === "audio")
@@ -1397,6 +1482,10 @@ export function Studio() {
         if (clip.kind === "visual" && clip.mediaId) {
           const element = mediaElements.get(clip.mediaId);
           if (element instanceof HTMLVideoElement) {
+            if (!editorNeedsVideo(clip.mediaId)) {
+              if (!element.paused) element.pause();
+              continue;
+            }
             // Hard seeks are expensive on long-GOP MP4s, so only correct real drift and
             // never stack a new seek on top of one that is still in flight.
             const clipJustStarted = !activeTimelineClips.current.has(clip.id);
@@ -1420,6 +1509,7 @@ export function Studio() {
           if (playing) engineRef.current?.playSound(clip.soundId);
           else engineRef.current?.pauseSound(clip.soundId);
         } else if (clip.kind === "movement" && clip.pathId && clip.soundId) {
+          if (!moveSounds) continue;
           const path = soundPaths.find((item) => item.id === clip.pathId);
           if (!path) continue;
           const elapsed = Math.max(0, time - clip.start);
@@ -1427,10 +1517,9 @@ export function Studio() {
           const position = positionOnPath(path, pathTime);
           if (position) {
             engineRef.current?.setPosition(clip.soundId, position);
-            // audio gets the exact position every frame; the on-screen marker only needs
-            // ~15 Hz, and each state update re-renders the whole editor
-            const nowMs = performance.now();
-            if (!playing || nowMs - movementUiAt.current >= 66) {
+            // the on-screen marker only exists in the room view and only needs ~15 Hz there;
+            // each state update re-renders the whole editor
+            if (!playing || (viewRef.current === "room" && nowMs - movementUiAt.current >= 66)) {
               movementUiAt.current = nowMs;
               setMovementPositions((current) => {
                 const previous = current[clip.soundId!];
@@ -1458,9 +1547,51 @@ export function Studio() {
         }
       }
       activeTimelineClips.current = nextIds;
+      return clipsChanged;
     },
-    [soundPaths, timelineClips, timelineTracks],
+    [editorNeedsVideo, soundPaths, timelineClips, timelineTracks],
   );
+
+  // Decide which videos run in this window. Everything else stays parked, so a video that is
+  // only sitting in "My media" costs nothing.
+  useEffect(() => {
+    const wanted = stageVisible ? usedVideoIds(displaySurfaces, testPattern) : new Set<string>();
+    const driven = new Set(probingVideos.current);
+    for (const sound of sounds) {
+      if (sound.kind === "video" && sound.mediaId && sound.playing) wanted.add(sound.mediaId);
+    }
+    for (const clip of activeClipsAt(timelineTracks, timelineClips, showTimeRef.current)) {
+      if (clip.kind === "visual" && clip.mediaId && editorNeedsVideo(clip.mediaId)) {
+        driven.add(clip.mediaId);
+      } else if (clip.kind === "audio") {
+        const mediaId = sounds.find((sound) => sound.id === clip.soundId)?.mediaId;
+        if (mediaId) driven.add(mediaId);
+      }
+    }
+    updateVideoPlayback(wanted, driven);
+  }, [
+    activeClipIds,
+    displaySurfaces,
+    editorNeedsVideo,
+    media,
+    sounds,
+    stageVisible,
+    testPattern,
+    timelineClips,
+    timelineTracks,
+  ]);
+
+  // while paused, a video that comes back into view has to catch up with the timeline position
+  useEffect(() => {
+    if (!stageVisible || showPlaying) return;
+    const time = showTimeRef.current;
+    for (const clip of activeClipsAt(timelineTracks, timelineClips, time)) {
+      const element = clip.kind === "visual" && clip.mediaId && mediaElements.get(clip.mediaId);
+      if (element instanceof HTMLVideoElement)
+        element.currentTime = clip.inPoint + Math.max(0, time - clip.start);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stageVisible]);
 
   const runShow = () => {
     if (!timelineClips.length) return;
@@ -1503,13 +1634,14 @@ export function Studio() {
       raf = requestAnimationFrame(tick);
       const t = (performance.now() - showStart.current) / 1000;
       showTimeRef.current = t;
-      // the UI (playhead, active-clip lookup) only needs ~15 Hz; re-rendering this
-      // whole component every frame starves the main thread and causes video stalls
-      if (now - lastUi >= 66) {
+      const clipsChanged = applyTimelineAt(t, true);
+      // Re-rendering this whole component starves the main thread and causes video stalls, so
+      // the clock only reaches React at ~15 Hz where a playhead is on screen and 4 Hz elsewhere.
+      // A clip starting or stopping goes through at once: surfaces switch source on it.
+      if (clipsChanged || now - lastUi >= (viewRef.current === "timeline" ? 66 : 250)) {
         lastUi = now;
         setShowTime(t);
       }
-      applyTimelineAt(t, true);
       if (t >= timelineLength(timelineClips)) {
         setShowTimeNow(t);
         setShowPlaying(false);
@@ -1611,9 +1743,7 @@ export function Studio() {
           <p className="mt-1 text-xs text-muted-foreground">
             Projection mapping and spatial sound in one application. Made by Innopixel.
           </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Version {packageJson.version}
-          </p>
+          <p className="mt-1 text-xs text-muted-foreground">Version {packageJson.version}</p>
         </header>
 
         <CollapsibleSection
@@ -1736,6 +1866,20 @@ export function Studio() {
               onCheckedChange={() => void toggleMic()}
               aria-label="Toggle microphone input"
               title="Enable or disable microphone input"
+            />
+          </div>
+          <div className="flex items-center justify-between rounded-lg border border-border p-3">
+            <div className="text-sm">
+              Show mode
+              <p className="text-xs text-muted-foreground">
+                Turns the preview here off. Projector windows keep running.
+              </p>
+            </div>
+            <Switch
+              checked={showMode}
+              onCheckedChange={toggleShowMode}
+              aria-label="Toggle show mode"
+              title="Save CPU during a show by turning the preview in this window off"
             />
           </div>
           <LabeledRow
@@ -2316,12 +2460,12 @@ export function Studio() {
                           {m.kind === "image" ? (
                             <img src={m.url} alt={m.name} className="size-full object-cover" />
                           ) : (
+                            // a still frame: a playing thumbnail is one more running decoder
                             <video
-                              src={m.url}
+                              src={`${m.url}#t=0.1`}
                               muted
-                              loop
                               playsInline
-                              autoPlay
+                              preload="metadata"
                               className="size-full object-cover"
                             />
                           )}
@@ -2614,21 +2758,26 @@ export function Studio() {
               transformOrigin: "top left",
             }}
           >
-            {[...displaySurfaces].reverse().map((s) => (
-              <SurfaceLayer
-                key={s.id}
-                surface={s}
-                index={surfaces.findIndex((surface) => surface.id === s.id)}
-                stage={stage}
-                globals={
-                  view !== "stage" && !fullscreen
-                    ? { ...globals, brightness: globals.brightness * 0.35 }
-                    : globals
-                }
-                testPattern={testPattern}
-                levels={levels}
-              />
-            ))}
+            {stageVisible &&
+              [...displaySurfaces].reverse().map((s) => (
+                <SurfaceLayer
+                  key={s.id}
+                  surface={s}
+                  index={surfaces.findIndex((surface) => surface.id === s.id)}
+                  stage={stage}
+                  globals={stageGlobals}
+                  testPattern={testPattern}
+                  levels={levels}
+                  ownsVideo={surfaceVideoOwners.get(s.source) === s.id}
+                  // with a projector open this is only a preview
+                  maxFps={openOutputs.length > 0 && !fullscreen ? 30 : 60}
+                />
+              ))}
+            {showMode && !fullscreen && view === "stage" && (
+              <p className="absolute inset-x-0 top-1/2 text-center text-sm text-muted-foreground">
+                Show mode: the preview is off. Projector windows keep running.
+              </p>
+            )}
             {view === "room" && !fullscreen && (
               <RoomView
                 stage={stage}

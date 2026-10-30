@@ -28,26 +28,93 @@ const clear = (ctx: CanvasRenderingContext2D, w: number, h: number, alpha = 1) =
 
 const col = (hue: number, l = 55, a = 1) => `hsla(${((hue % 360) + 360) % 360},95%,${l}%,${a})`;
 
+// Visuals made of thousands of small cells write them as pixels and scale the result up.
+// One fillStyle string plus one fillRect per cell is what makes those visuals expensive.
+let cellCanvas: HTMLCanvasElement | null = null;
+let cellCtx: CanvasRenderingContext2D | null = null;
+let cellImage: ImageData | null = null;
+
+const cellBuffer = (cols: number, rows: number) => {
+  if (!cellCanvas) {
+    cellCanvas = document.createElement("canvas");
+    cellCtx = cellCanvas.getContext("2d");
+  }
+  if (!cellImage || cellImage.width !== cols || cellImage.height !== rows) {
+    cellCanvas.width = cols;
+    cellCanvas.height = rows;
+    cellImage = new ImageData(cols, rows);
+  }
+  return cellImage;
+};
+
+const paintCells = (ctx: CanvasRenderingContext2D, image: ImageData, step: number) => {
+  if (!cellCanvas || !cellCtx) return;
+  cellCtx.putImageData(image, 0, 0);
+  const smoothing = ctx.imageSmoothingEnabled;
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(cellCanvas, 0, 0, image.width * step, image.height * step);
+  ctx.imageSmoothingEnabled = smoothing;
+};
+
+/** Same colours as `col`, written straight into pixel data. `lightness` is 0..100. */
+const writeCell = (data: Uint8ClampedArray, i: number, hue: number, lightness: number) => {
+  const h = (((hue % 360) + 360) % 360) / 60;
+  const l = lightness / 100;
+  const c = (1 - Math.abs(2 * l - 1)) * 0.95;
+  const x = c * (1 - Math.abs((h % 2) - 1));
+  const m = l - c / 2;
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  if (h < 1) {
+    r = c;
+    g = x;
+  } else if (h < 2) {
+    r = x;
+    g = c;
+  } else if (h < 3) {
+    g = c;
+    b = x;
+  } else if (h < 4) {
+    g = x;
+    b = c;
+  } else if (h < 5) {
+    r = x;
+    b = c;
+  } else {
+    r = c;
+    b = x;
+  }
+  data[i] = (r + m) * 255;
+  data[i + 1] = (g + m) * 255;
+  data[i + 2] = (b + m) * 255;
+  data[i + 3] = 255;
+};
+
 export const visuals: Visual[] = [
   {
     id: "plasma",
     name: "Plasma",
     group: "Organic",
     draw: ({ ctx, w, h, t, hue, intensity, audio }) => {
-      clear(ctx, w, h);
       const step = 14;
       const amp = 1 + audio.level * 2;
-      for (let y = 0; y < h; y += step) {
-        for (let x = 0; x < w; x += step) {
+      const cols = Math.ceil(w / step);
+      const rows = Math.ceil(h / step);
+      const image = cellBuffer(cols, rows);
+      for (let row = 0; row < rows; row++) {
+        const y = row * step;
+        for (let c = 0; c < cols; c++) {
+          const x = c * step;
           const v =
             Math.sin(x * 0.02 + t) +
             Math.sin(y * 0.025 - t * 1.3) +
             Math.sin((x + y) * 0.015 + t * 0.7);
           const l = 20 + ((v + 3) / 6) * 60 * (0.4 + intensity * 0.6) * amp;
-          ctx.fillStyle = col(hue + v * 40, Math.min(85, l));
-          ctx.fillRect(x, y, step + 1, step + 1);
+          writeCell(image.data, (row * cols + c) * 4, hue + v * 40, Math.min(85, l));
         }
       }
+      paintCells(ctx, image, step);
     },
   },
   {
@@ -245,15 +312,22 @@ export const visuals: Visual[] = [
     name: "Static",
     group: "Pulse",
     draw: ({ ctx, w, h, hue, intensity, audio }) => {
-      clear(ctx, w, h);
       const step = 8;
-      for (let y = 0; y < h; y += step) {
-        for (let x = 0; x < w; x += step) {
-          if (Math.random() > 0.35 + intensity * 0.4 + audio.level * 0.2) continue;
-          ctx.fillStyle = col(hue + Math.random() * 40, 30 + Math.random() * 60);
-          ctx.fillRect(x, y, step, step);
+      const cols = Math.ceil(w / step);
+      const rows = Math.ceil(h / step);
+      const image = cellBuffer(cols, rows);
+      const threshold = 0.35 + intensity * 0.4 + audio.level * 0.2;
+      for (let i = 0; i < cols * rows; i++) {
+        if (Math.random() > threshold) {
+          image.data[i * 4] = 0;
+          image.data[i * 4 + 1] = 0;
+          image.data[i * 4 + 2] = 0;
+          image.data[i * 4 + 3] = 255;
+        } else {
+          writeCell(image.data, i * 4, hue + Math.random() * 40, 30 + Math.random() * 60);
         }
       }
+      paintCells(ctx, image, step);
     },
   },
   {

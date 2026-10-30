@@ -1,6 +1,7 @@
-import { bandLevels, silentLevels, type AudioLevels } from "./audio";
+import { LEVEL_SAMPLE_MS, bandLevels, silentLevels, type AudioLevels } from "./audio";
 import { ReverbBus } from "./reverb";
 import { shCoefficients } from "./sh";
+import { waveformOf } from "./waveform";
 import {
   defaultReverb,
   type ReverbConfig,
@@ -25,9 +26,16 @@ type SourceGraph = {
   analyser: AnalyserNode;
   data: Uint8Array<ArrayBuffer>;
   levels: AudioLevels;
+  sampledAt: number;
   encoder: GainNode[]; // 16 gains into field
   ambiRot: GainNode[] | null; // 2 per channel for ambisonic files
   splitter: ChannelSplitterNode | null;
+  /** W channel of an ambisonic file, feeding the analyser and the reverb send */
+  ambiW: GainNode | null;
+  /** the room order the ambisonic routing is wired for */
+  ambiOrder: number;
+  /** the gains currently set on the ambisonic routing */
+  ambiKey: string;
   /** how much of this source goes to the reverb bus */
   send: GainNode;
   sendAmount: number;
@@ -44,24 +52,26 @@ export class SpatialEngine {
   private masterAnalyser: AnalyserNode;
   private masterData: Uint8Array<ArrayBuffer>;
   masterLevels: AudioLevels = { ...silentLevels };
+  private masterSampledAt = 0;
   private sources = new Map<string, SourceGraph>();
   private decoderNodes: AudioNode[] = [];
   private decoderKey = "";
   private room: RoomConfig;
-  private raf = 0;
   maxChannels: number;
 
-  constructor(room: RoomConfig, reverb: ReverbConfig = defaultReverb()) {
+  constructor(room: RoomConfig, reverb: ReverbConfig = defaultReverb(), reverbNeeded = false) {
     const Ctx =
       window.AudioContext ||
       (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    this.ctx = new Ctx();
+    // Larger audio buffers mean far fewer wake-ups of the audio thread. A show has no live
+    // instrument to keep up with, so the extra few tens of milliseconds cost nothing.
+    this.ctx = new Ctx({ latencyHint: "playback" });
     this.room = room;
     this.maxChannels = this.ctx.destination.maxChannelCount || 2;
     this.field = this.ctx.createChannelMerger(CH);
     this.fieldSplit = this.ctx.createChannelSplitter(CH);
     this.field.connect(this.fieldSplit);
-    this.reverb = new ReverbBus(this.ctx, this.field, reverb);
+    this.reverb = new ReverbBus(this.ctx, this.field, reverb, room.order, reverbNeeded);
     this.master = this.ctx.createGain();
     this.masterAnalyser = this.ctx.createAnalyser();
     this.masterAnalyser.fftSize = 1024;
@@ -70,26 +80,29 @@ export class SpatialEngine {
     this.master.connect(this.masterAnalyser);
     this.master.connect(this.ctx.destination);
     this.applyRoom(room, true);
-    const tick = () => {
-      this.sample();
-      this.raf = requestAnimationFrame(tick);
-    };
-    this.raf = requestAnimationFrame(tick);
   }
 
-  private sample() {
-    this.masterAnalyser.getByteFrequencyData(this.masterData);
-    this.masterLevels = bandLevels(this.masterData, this.masterLevels);
-    for (const s of this.sources.values()) {
-      s.analyser.getByteFrequencyData(s.data);
-      s.levels = bandLevels(s.data, s.levels);
-    }
-  }
-
+  /** Levels are analysed when asked for, so a source nothing reacts to costs no analysis. */
   levels(source: string): AudioLevels {
-    if (source === "master") return this.masterLevels;
-    if (source.startsWith("sound:"))
-      return this.sources.get(source.slice(6))?.levels ?? silentLevels;
+    const now = performance.now();
+    if (source === "master") {
+      if (now - this.masterSampledAt >= LEVEL_SAMPLE_MS) {
+        this.masterSampledAt = now;
+        this.masterAnalyser.getByteFrequencyData(this.masterData);
+        this.masterLevels = bandLevels(this.masterData, this.masterLevels);
+      }
+      return this.masterLevels;
+    }
+    if (source.startsWith("sound:")) {
+      const s = this.sources.get(source.slice(6));
+      if (!s) return silentLevels;
+      if (now - s.sampledAt >= LEVEL_SAMPLE_MS) {
+        s.sampledAt = now;
+        s.analyser.getByteFrequencyData(s.data);
+        s.levels = bandLevels(s.data, s.levels);
+      }
+      return s.levels;
+    }
     return silentLevels;
   }
 
@@ -124,6 +137,7 @@ export class SpatialEngine {
     const prev = this.room;
     this.room = room;
     this.master.gain.value = room.masterGain;
+    if (prev.order !== room.order) this.reverb.setOrder(room.order);
     const key = JSON.stringify([
       room.outputMode,
       room.speakers,
@@ -151,12 +165,19 @@ export class SpatialEngine {
     this.reverb.apply(cfg);
   }
 
-  /** Amount of a source sent into the reverb bus, 0..1. */
+  /** Whether any clip sends sound to the reverb; without one its network is not built. */
+  setReverbNeeded(needed: boolean) {
+    this.reverb.setNeeded(needed);
+  }
+
+  /** Amount of a source sent into the reverb bus, 0..1. Called every frame while playing. */
   setReverbSend(id: string, amount: number) {
     const g = this.sources.get(id);
     if (!g) return;
-    g.sendAmount = Math.max(0, Math.min(1, amount));
-    g.send.gain.setTargetAtTime(g.sendAmount, this.ctx.currentTime + 0.02, 0.03);
+    const next = Math.max(0, Math.min(1, amount));
+    if (next === g.sendAmount) return;
+    g.sendAmount = next;
+    g.send.gain.setTargetAtTime(next, this.ctx.currentTime + 0.02, 0.03);
   }
 
   private buildDecoder() {
@@ -233,25 +254,30 @@ export class SpatialEngine {
   // ---------- sources ----------
 
   async addSound(item: SoundItem, file: Blob): Promise<SoundItem> {
-    const url = URL.createObjectURL(file);
     // Probe channel count by decoding a copy; fall back to element playback for 1–2 ch.
+    // A saved sound that plays through an element already knows all of this, so opening a
+    // show does not have to decode every file in full.
     let buffer: AudioBuffer | null = null;
-    try {
-      const probe = await this.ctx.decodeAudioData(await file.slice(0).arrayBuffer());
-      if (probe.numberOfChannels >= 4) buffer = probe;
-      item = {
-        ...item,
-        channels: probe.numberOfChannels,
-        duration: probe.duration,
-        kind:
-          probe.numberOfChannels >= 4
-            ? "ambisonic"
-            : probe.numberOfChannels === 1
-              ? "mono"
-              : "stereo",
-      };
-    } catch {
-      /* browser cannot decode fully; still try element playback */
+    const known = item.duration > 0 && item.channels < 4 && !!item.peaks;
+    if (!known) {
+      try {
+        const probe = await this.ctx.decodeAudioData(await file.slice(0).arrayBuffer());
+        if (probe.numberOfChannels >= 4) buffer = probe;
+        item = {
+          ...item,
+          channels: probe.numberOfChannels,
+          duration: probe.duration,
+          peaks: item.peaks ?? waveformOf(probe).peaks,
+          kind:
+            probe.numberOfChannels >= 4
+              ? "ambisonic"
+              : probe.numberOfChannels === 1
+                ? "mono"
+                : "stereo",
+        };
+      } catch {
+        /* browser cannot decode fully; still try element playback */
+      }
     }
     const input = this.ctx.createGain();
     input.channelCount = 1;
@@ -277,9 +303,13 @@ export class SpatialEngine {
       analyser,
       data: new Uint8Array(new ArrayBuffer(analyser.frequencyBinCount)),
       levels: { ...silentLevels },
+      sampledAt: 0,
       encoder,
       ambiRot: null,
       splitter: null,
+      ambiW: null,
+      ambiOrder: -1,
+      ambiKey: "",
       send,
       sendAmount: 0,
       startedAt: 0,
@@ -296,14 +326,13 @@ export class SpatialEngine {
         a.connect(this.field, 0, i);
         b.connect(this.field, 0, i);
       }
-      const wGain = this.ctx.createGain();
-      g.splitter.connect(wGain, 0);
-      wGain.connect(analyser);
-      wGain.connect(send);
+      g.ambiW = this.ctx.createGain();
+      g.ambiW.connect(analyser);
+      g.ambiW.connect(send);
       // input gain node used for master-volume scaling of whole ambisonic source via each rot gain
       this.updateAmbiRotation(g);
     } else {
-      const el = new Audio(url);
+      const el = new Audio(URL.createObjectURL(file));
       el.loop = item.loop;
       el.crossOrigin = "anonymous";
       el.preload = "auto";
@@ -362,9 +391,13 @@ export class SpatialEngine {
       analyser,
       data: new Uint8Array(new ArrayBuffer(analyser.frequencyBinCount)),
       levels: { ...silentLevels },
+      sampledAt: 0,
       encoder,
       ambiRot: null,
       splitter: null,
+      ambiW: null,
+      ambiOrder: -1,
+      ambiKey: "",
       send,
       sendAmount: 0,
       startedAt: 0,
@@ -394,7 +427,10 @@ export class SpatialEngine {
     this.stopSound(id);
     if (g.item.kind !== "video") {
       g.el?.pause();
-      if (g.el) g.el.src = "";
+      if (g.el) {
+        URL.revokeObjectURL(g.el.src);
+        g.el.src = "";
+      }
     }
     [
       g.input,
@@ -404,6 +440,7 @@ export class SpatialEngine {
       g.send,
       ...g.encoder,
       ...(g.ambiRot ?? []),
+      ...(g.ambiW ? [g.ambiW] : []),
     ].forEach((n) => n.disconnect());
     g.splitter?.disconnect();
     this.sources.delete(id);
@@ -437,6 +474,11 @@ export class SpatialEngine {
     const solo = this.anySolo();
     const audible = !item.mute && (!solo || item.solo);
     const vol = audible ? item.gain : 0;
+    if (g.ambiRot) {
+      // an ambisonic file only turns with its heading: its position does not change the sound
+      this.updateAmbiRotation(g, vol);
+      return;
+    }
     const { listener, width, length, order } = this.room;
     const verticalScale = (width + length) / 4;
     const rel = {
@@ -448,29 +490,30 @@ export class SpatialEngine {
     const dist = 1 / Math.max(1, metres);
     const t = this.ctx.currentTime + 0.03;
     g.lowpass.frequency.setTargetAtTime(Math.max(800, 18000 / (1 + metres * 0.35)), t, 0.03);
-    if (g.ambiRot) {
-      this.updateAmbiRotation(g, vol);
-    } else {
-      g.input.gain.setTargetAtTime(vol, t, 0.03);
-      g.distance.gain.setTargetAtTime(dist, t, 0.03);
-      const coef = shCoefficients(rel);
-      g.encoder.forEach((e, i) => {
-        e.gain.setTargetAtTime(orderOf(i) > order ? 0 : coef[i]!, t, 0.03);
-      });
-    }
+    g.input.gain.setTargetAtTime(vol, t, 0.03);
+    g.distance.gain.setTargetAtTime(dist, t, 0.03);
+    const coef = shCoefficients(rel);
+    g.encoder.forEach((e, i) => {
+      e.gain.setTargetAtTime(orderOf(i) > order ? 0 : coef[i]!, t, 0.03);
+    });
   }
 
   private updateAmbiRotation(g: SourceGraph, vol = g.item.gain) {
     if (!g.ambiRot || !g.splitter) return;
+    const { order } = this.room;
+    const key = `${vol}|${g.item.heading}|${order}`;
+    if (key === g.ambiKey) return;
+    g.ambiKey = key;
     const th = (g.item.heading * Math.PI) / 180;
     const chans = g.buffer?.numberOfChannels ?? 0;
     const t = this.ctx.currentTime + 0.03;
-    // disconnect old routing
-    g.splitter.disconnect();
-    const wGain = this.ctx.createGain();
-    g.splitter.connect(wGain, 0);
-    wGain.connect(g.analyser);
-    wGain.connect(g.send);
+    // the routing depends on the order alone; heading and volume only move the gains
+    const rewire = g.ambiOrder !== order;
+    if (rewire) {
+      g.ambiOrder = order;
+      g.splitter.disconnect();
+      if (g.ambiW) g.splitter.connect(g.ambiW, 0);
+    }
     for (let i = 0; i < CH; i++) {
       const a = g.ambiRot[i * 2]!;
       const b = g.ambiRot[i * 2 + 1]!;
@@ -483,15 +526,17 @@ export class SpatialEngine {
         continue;
       }
       if (m === 0) {
-        g.splitter.connect(a, i);
+        if (rewire) g.splitter.connect(a, i);
         a.gain.setTargetAtTime(vol, t, 0.03);
         b.gain.setTargetAtTime(0, t, 0.03);
       } else {
         const partner = n * n + n - m;
         const c = Math.cos(m * th);
         const s = Math.sin(m * th);
-        g.splitter.connect(a, i);
-        g.splitter.connect(b, partner);
+        if (rewire) {
+          g.splitter.connect(a, i);
+          g.splitter.connect(b, partner);
+        }
         a.gain.setTargetAtTime(vol * c, t, 0.03);
         b.gain.setTargetAtTime(vol * (m > 0 ? -s : s), t, 0.03);
       }
@@ -503,7 +548,8 @@ export class SpatialEngine {
     if (!g) return;
     this.resume();
     if (g.el) {
-      void g.el.play();
+      // this runs every frame while the timeline plays
+      if (g.el.paused) void g.el.play().catch(() => undefined);
     } else if (g.buffer && g.splitter) {
       if (g.bufSrc) return;
       const src = this.ctx.createBufferSource();
@@ -522,8 +568,9 @@ export class SpatialEngine {
   pauseSound(id: string) {
     const g = this.sources.get(id);
     if (!g) return;
-    if (g.el) g.el.pause();
-    else if (g.bufSrc) {
+    if (g.el) {
+      if (!g.el.paused) g.el.pause();
+    } else if (g.bufSrc) {
       g.offset = this.ctx.currentTime - g.startedAt;
       g.bufSrc.stop();
       g.bufSrc = null;
@@ -555,7 +602,6 @@ export class SpatialEngine {
   }
 
   destroy() {
-    cancelAnimationFrame(this.raf);
     for (const id of [...this.sources.keys()]) this.removeSound(id);
     this.reverb.destroy();
     void this.ctx.close();

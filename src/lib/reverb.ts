@@ -42,11 +42,23 @@ export class ReverbBus {
   private destroyed = false;
   private cfg: ReverbConfig;
   private buildKey = "";
+  /** ambisonic order of the room: channels above it are never decoded */
+  private order: number;
+  /** does any clip send sound here? Without a send the network would only run silence. */
+  private needed: boolean;
 
-  constructor(ctx: AudioContext, field: ChannelMergerNode, cfg: ReverbConfig) {
+  constructor(
+    ctx: AudioContext,
+    field: ChannelMergerNode,
+    cfg: ReverbConfig,
+    order: number,
+    needed: boolean,
+  ) {
     this.ctx = ctx;
     this.field = field;
     this.cfg = cfg;
+    this.order = order;
+    this.needed = needed;
     this.input = ctx.createGain();
     this.preDelay = ctx.createDelay(1);
     this.earlyIn = ctx.createGain();
@@ -61,6 +73,21 @@ export class ReverbBus {
     this.preDelay.connect(this.tailDamp);
     this.tailDamp.connect(this.tailIn);
     this.apply(cfg, true);
+  }
+
+  setOrder(order: number) {
+    this.order = order;
+    this.apply(this.cfg);
+  }
+
+  setNeeded(needed: boolean) {
+    this.needed = needed;
+    this.apply(this.cfg);
+  }
+
+  /** Only a reverb that can be heard gets its taps and convolvers built. */
+  private get active() {
+    return this.needed && this.cfg.enabled && this.cfg.level > 0;
   }
 
   apply(cfg: ReverbConfig, force = false) {
@@ -78,7 +105,9 @@ export class ReverbBus {
     this.preDelay.delayTime.setTargetAtTime(Math.min(0.9, cfg.preDelayMs / 1000), t, 0.05);
 
     // Expensive parameters: changing these means rebuilding the taps and convolvers
-    const key = JSON.stringify([cfg.roomSize, cfg.decay, cfg.damping, cfg.earlySpread]);
+    const key = this.active
+      ? JSON.stringify([cfg.roomSize, cfg.decay, cfg.damping, cfg.earlySpread, this.order])
+      : "off";
 
     if (force) {
       // Initial build (constructor): do it immediately
@@ -110,8 +139,10 @@ export class ReverbBus {
     this.nodes = [];
     this.inputLinks = [];
     // Build the new network first so there is no gap in the sound
-    this.buildEarly();
-    this.buildTail();
+    if (this.active) {
+      this.buildEarly();
+      this.buildTail();
+    }
     // Then fully release the old one: cut the shared inputs feeding it too
     this.releaseNodes(old, oldInputs);
   }
@@ -149,6 +180,7 @@ export class ReverbBus {
       this.nodes.push(tap, level);
       const coef = shCoefficients(tapDirection(i, earlySpread));
       for (let c = 0; c < CH; c++) {
+        if (orderOf(c) > this.order) continue;
         const g = this.ctx.createGain();
         g.gain.value = coef[c]! * tailWeight[orderOf(c)]!;
         level.connect(g);
@@ -162,6 +194,7 @@ export class ReverbBus {
     const { decay, roomSize, damping } = this.cfg;
     for (let c = 0; c < CH; c++) {
       const order = orderOf(c);
+      if (order > this.order) continue;
       const seconds = Math.max(0.05, decay * (order === 0 ? 1 : 0.7));
       const conv = this.ctx.createConvolver();
       conv.normalize = false;

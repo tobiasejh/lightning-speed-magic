@@ -1,6 +1,15 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import {
+  memo,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 
 import { silentLevels, type AudioLevelProvider } from "@/lib/audio";
+import { stowVideo } from "@/lib/media-playback";
 import { drawPattern } from "@/lib/patterns";
 import {
   mediaElements,
@@ -19,6 +28,10 @@ type Props = {
   globals: Globals;
   testPattern: TestPattern;
   levels: AudioLevelProvider | null;
+  /** this surface displays the media element itself instead of a second decoder */
+  ownsVideo: boolean;
+  /** upper limit for canvas drawing, whatever the display's refresh rate */
+  maxFps?: number;
 };
 
 const isVideoElement = (
@@ -74,20 +87,56 @@ const fitVideo = (
   };
 };
 
-export function SurfaceLayer({ surface, index, stage, globals, testPattern, levels }: Props) {
+const cssLength = (value: CSSProperties["left"]) =>
+  typeof value === "number" ? `${value}px` : String(value);
+
+/** A still image only needs redrawing when something that shapes the picture changes. */
+const imageDrawKey = (s: Surface, w: number, h: number, bass: number) => {
+  const mediaId = s.source.slice(6);
+  const el = mediaElements.get(mediaId);
+  const loaded = el && !isVideoElement(el) ? el.naturalWidth : 0;
+  const crop = mediaMeta.get(mediaId)?.crop;
+  return [
+    s.source,
+    loaded,
+    w,
+    h,
+    s.fit,
+    s.rotate,
+    s.flipH,
+    s.flipV,
+    bass.toFixed(3),
+    crop?.x,
+    crop?.y,
+    crop?.w,
+    crop?.h,
+  ].join("|");
+};
+
+function SurfaceLayerImpl({
+  surface,
+  index,
+  stage,
+  globals,
+  testPattern,
+  levels,
+  ownsVideo,
+  maxFps = 60,
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const videoFrameRef = useRef<HTMLDivElement | null>(null);
-  const [mediaVersion, setMediaVersion] = useState(0);
+  const [, setMediaVersion] = useState(0);
   const [videoSize, setVideoSize] = useState({ w: 0, h: 0 });
-  const latest = useRef({ surface, globals, levels, testPattern, index });
-  latest.current = { surface, globals, levels, testPattern, index };
+  const latest = useRef({ surface, globals, levels, testPattern, index, maxFps });
+  latest.current = { surface, globals, levels, testPattern, index, maxFps };
 
   const mediaId = surface.source.startsWith("media:") ? surface.source.slice(6) : null;
   const media = mediaId ? mediaElements.get(mediaId) : undefined;
   const meta = mediaId ? mediaMeta.get(mediaId) : undefined;
   const directVideo = testPattern === "off" && isVideoElement(media);
   const drawCanvas = !directVideo;
+  const audioPulse = directVideo && globals.audioReactive && !!levels;
 
   useEffect(() => {
     if (!mediaId) return;
@@ -110,17 +159,32 @@ export function SurfaceLayer({ surface, index, stage, globals, testPattern, leve
     if (!drawCanvas) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext("2d");
+    // every surface paints its full area, so the page behind never has to be blended in
+    const ctx = canvas.getContext("2d", { alpha: false });
     if (!ctx) return;
 
     let raf = 0;
-    let last = performance.now();
+    let due = performance.now();
+    let last = due;
     let clock = 0;
+    // what the canvas shows right now, when that picture does not change on its own
+    let drawnKey = "";
 
     const frame = (now: number) => {
       raf = requestAnimationFrame(frame);
-      const { surface: s, globals: g, levels: lv, testPattern: tp, index: idx } = latest.current;
-      const dt = Math.min(0.05, (now - last) / 1000);
+      const {
+        surface: s,
+        globals: g,
+        levels: lv,
+        testPattern: tp,
+        index: idx,
+        maxFps: fps,
+      } = latest.current;
+      const interval = 1000 / fps;
+      // the 2 ms of slack keeps timer jitter from turning 60 Hz into 30 fps
+      if (now - due < interval - 2) return;
+      due = now - ((now - due) % interval);
+      const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
       clock += dt * g.speed;
 
@@ -128,11 +192,29 @@ export function SurfaceLayer({ surface, index, stage, globals, testPattern, leve
       const h = canvas.height;
 
       if (tp !== "off") {
-        drawPattern(ctx, w, h, tp, String(idx + 1));
+        const key = `${tp}|${idx}|${w}|${h}`;
+        if (key !== drawnKey) {
+          drawnKey = key;
+          drawPattern(ctx, w, h, tp, String(idx + 1));
+        }
+        return;
+      }
+
+      // nobody can see this surface: the clock above keeps running, the drawing does not
+      if (!s.visible || g.blackout || s.opacity <= 0) {
+        drawnKey = "";
         return;
       }
 
       const audio = g.audioReactive && lv ? lv(s.audioSource) : silentLevels;
+
+      if (s.source.startsWith("media:")) {
+        const key = imageDrawKey(s, w, h, audio.bass);
+        if (key === drawnKey) return;
+        drawnKey = key;
+      } else {
+        drawnKey = "";
+      }
 
       ctx.save();
       // flip / rotate around centre
@@ -193,28 +275,48 @@ export function SurfaceLayer({ surface, index, stage, globals, testPattern, leve
     return () => cancelAnimationFrame(raf);
   }, [drawCanvas]);
 
-  useEffect(() => {
-    if (!directVideo || !mediaId) return;
-    const video = videoRef.current;
+  // Show the media element itself, so one video on one surface is one decoder. Layout effect:
+  // a passive cleanup can run after the frame has left the document, and a video outside the
+  // document gets paused by the browser, which would cut its sound.
+  useLayoutEffect(() => {
+    if (!directVideo || !ownsVideo || !mediaId) return;
+    const frameEl = videoFrameRef.current;
     const source = mediaElements.get(mediaId);
-    if (!video || !isVideoElement(source)) return;
+    if (!frameEl || !isVideoElement(source)) return;
+    frameEl.appendChild(source);
+    return () => {
+      source.removeAttribute("style");
+      if (mediaElements.get(mediaId) === source) stowVideo(source);
+      else source.remove();
+    };
+  }, [directVideo, ownsVideo, mediaId, media]);
 
-    const src = source.currentSrc || source.src;
-    if (video.src !== src) video.src = src;
-    video.muted = true;
-    video.loop = true;
-    video.playsInline = true;
-    video.preload = "auto";
+  useEffect(() => {
+    if (!directVideo || !mediaId || !surface.visible) return;
+    const source = mediaElements.get(mediaId);
+    if (!isVideoElement(source)) return;
+    const video = ownsVideo ? source : videoRef.current;
+    if (!video) return;
+
+    if (!ownsVideo) {
+      const src = source.currentSrc || source.src;
+      if (video.src !== src) video.src = src;
+      video.muted = true;
+      video.loop = true;
+      video.playsInline = true;
+      video.preload = "auto";
+    }
 
     const noteSize = () => {
-      if (source.videoWidth && source.videoHeight)
-        setVideoSize({ w: source.videoWidth, h: source.videoHeight });
-      else if (video.videoWidth && video.videoHeight)
-        setVideoSize({ w: video.videoWidth, h: video.videoHeight });
+      const w = source.videoWidth || video.videoWidth;
+      const h = source.videoHeight || video.videoHeight;
+      if (!w || !h) return;
+      // same size must keep the same object, or this re-renders on every sync tick
+      setVideoSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
     };
 
-    // The visible <video> is a second decoder that follows the hidden `source` clock.
-    // Hard seeks on a playing MP4 are slow (jump to a keyframe, decode forward), so:
+    // A surface that shares its video with another one has a second decoder following the
+    // `source` clock. Hard seeks on a playing MP4 are slow (jump to a keyframe, decode forward), so:
     //  - small drift is corrected by nudging playbackRate, not by seeking
     //  - big drift triggers one seek, then a cooldown, and never a seek during a seek
     // Otherwise a seek that takes >100 ms leaves the gap open, the next tick seeks
@@ -240,6 +342,11 @@ export function SurfaceLayer({ surface, index, stage, globals, testPattern, leve
         (source.currentTime > end || source.currentTime < start - 0.05)
       )
         source.currentTime = start;
+
+      if (video === source) {
+        noteSize();
+        return;
+      }
 
       const baseRate = source.playbackRate || 1;
       const wanted = source.currentTime || start;
@@ -286,36 +393,54 @@ export function SurfaceLayer({ surface, index, stage, globals, testPattern, leve
       window.clearInterval(timer);
       source.removeEventListener("loadedmetadata", noteSize);
       video.removeEventListener("loadedmetadata", noteSize);
-      video.pause();
+      if (video !== source) video.pause();
     };
-  }, [directVideo, mediaId, mediaVersion]);
+  }, [directVideo, ownsVideo, surface.visible, mediaId, media]);
 
+  // Without audio reaction the transform only changes with the surface, which React handles
+  // below, so a projector window playing video runs no animation loop at all.
   useEffect(() => {
-    if (!directVideo) return;
+    if (!audioPulse) return;
+    const frameEl = videoFrameRef.current;
     let raf = 0;
-    let lastTransform = "";
+    let lastPulse = -1;
+    let lastRotate = -1;
+    let lastFlipH = false;
+    let lastFlipV = false;
+
+    const apply = (el: HTMLDivElement, s: Surface, pulse: number) => {
+      const rotation = ((s.rotate % 360) + 360) % 360;
+      el.style.transform = `translate(-50%, -50%) rotate(${rotation}deg) scale(${(s.flipH ? -1 : 1) * pulse}, ${(s.flipV ? -1 : 1) * pulse})`;
+    };
 
     const frame = () => {
       const el = videoFrameRef.current;
       if (el) {
-        const { surface: s, globals: g, levels: lv } = latest.current;
-        const bass = g.audioReactive && lv ? lv(s.audioSource).bass : silentLevels.bass;
-        const pulse = 1 + bass * 0.08;
-        const rotation = ((s.rotate % 360) + 360) % 360;
-        const transform = `translate(-50%, -50%) rotate(${rotation}deg) scale(${(s.flipH ? -1 : 1) * pulse}, ${(s.flipV ? -1 : 1) * pulse})`;
-        // only touch the DOM when it changes (in the output window the pulse is always 1),
-        // so the compositor isn't invalidated every frame for nothing
-        if (transform !== lastTransform) {
-          lastTransform = transform;
-          el.style.transform = transform;
+        const { surface: s, levels: lv } = latest.current;
+        const bass = lv ? lv(s.audioSource).bass : silentLevels.bass;
+        const pulse = Math.round((1 + bass * 0.08) * 1000) / 1000;
+        if (
+          pulse !== lastPulse ||
+          s.rotate !== lastRotate ||
+          s.flipH !== lastFlipH ||
+          s.flipV !== lastFlipV
+        ) {
+          lastPulse = pulse;
+          lastRotate = s.rotate;
+          lastFlipH = s.flipH;
+          lastFlipV = s.flipV;
+          apply(el, s, pulse);
         }
       }
       raf = requestAnimationFrame(frame);
     };
 
     raf = requestAnimationFrame(frame);
-    return () => cancelAnimationFrame(raf);
-  }, [directVideo]);
+    return () => {
+      cancelAnimationFrame(raf);
+      if (frameEl) apply(frameEl, latest.current.surface, 1);
+    };
+  }, [audioPulse]);
 
   const px = surface.corners.map((c) => ({ x: c.x * stage.w, y: c.y * stage.h }));
   const rotate = ((surface.rotate % 360) + 360) % 360;
@@ -335,6 +460,23 @@ export function SurfaceLayer({ surface, index, stage, globals, testPattern, leve
   );
   const videoSrc = isVideoElement(media) ? media.currentSrc || media.src : undefined;
 
+  useLayoutEffect(() => {
+    if (!directVideo || !ownsVideo || !mediaId) return;
+    const source = mediaElements.get(mediaId);
+    if (!isVideoElement(source)) return;
+    const { position, left, top, width, height, objectFit, maxWidth, maxHeight } = videoStyle;
+    Object.assign(source.style, {
+      position,
+      left: cssLength(left),
+      top: cssLength(top),
+      width: cssLength(width),
+      height: cssLength(height),
+      objectFit,
+      maxWidth,
+      maxHeight,
+    });
+  }, [directVideo, ownsVideo, mediaId, media, videoStyle]);
+
   return (
     <div
       aria-hidden
@@ -347,7 +489,8 @@ export function SurfaceLayer({ surface, index, stage, globals, testPattern, leve
         transformOrigin: "0 0",
         transform: quadMatrix(stage.w || 1, stage.h || 1, px),
         opacity: globals.blackout || !surface.visible ? 0 : surface.opacity,
-        filter: `brightness(${globals.brightness})`,
+        // a filter makes the compositor render this surface to its own texture first
+        filter: globals.brightness === 1 ? undefined : `brightness(${globals.brightness})`,
         pointerEvents: "none",
         transition: "opacity 120ms linear",
         clipPath:
@@ -376,9 +519,13 @@ export function SurfaceLayer({ surface, index, stage, globals, testPattern, leve
             transform: `translate(-50%, -50%) rotate(${rotate}deg) scale(${surface.flipH ? -1 : 1}, ${surface.flipV ? -1 : 1})`,
           }}
         >
-          <video ref={videoRef} src={videoSrc} muted playsInline loop style={videoStyle} />
+          {!ownsVideo && surface.visible && (
+            <video ref={videoRef} src={videoSrc} muted playsInline loop style={videoStyle} />
+          )}
         </div>
       )}
     </div>
   );
 }
+
+export const SurfaceLayer = memo(SurfaceLayerImpl);

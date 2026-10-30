@@ -26,17 +26,29 @@ export function bandLevels(d: Uint8Array, prev: AudioLevels): AudioLevels {
   };
 }
 
-/** Microphone analyser that keeps a smoothed set of band levels up to date. */
+/** A frequency analysis is only worth redoing once per displayed frame, at most. */
+export const LEVEL_SAMPLE_MS = 15;
+
+/** Microphone analyser. Band levels are worked out when someone reads them, not before. */
 export class MicAnalyser {
-  levels: AudioLevels = { ...silentLevels };
+  private current: AudioLevels = { ...silentLevels };
+  private sampledAt = 0;
   private ctx: AudioContext | null = null;
   private stream: MediaStream | null = null;
   private analyser: AnalyserNode | null = null;
   private data: Uint8Array<ArrayBuffer> | null = null;
-  private raf = 0;
 
   get active() {
     return !!this.analyser;
+  }
+
+  get levels(): AudioLevels {
+    const now = performance.now();
+    if (now - this.sampledAt >= LEVEL_SAMPLE_MS) {
+      this.sampledAt = now;
+      this.sample();
+    }
+    return this.current;
   }
 
   async start() {
@@ -55,11 +67,6 @@ export class MicAnalyser {
     this.stream = stream;
     this.analyser = analyser;
     this.data = new Uint8Array(new ArrayBuffer(analyser.frequencyBinCount));
-    const tick = () => {
-      this.sample();
-      this.raf = requestAnimationFrame(tick);
-    };
-    this.raf = requestAnimationFrame(tick);
   }
 
   private sample() {
@@ -67,17 +74,16 @@ export class MicAnalyser {
     const d = this.data;
     if (!a || !d) return;
     a.getByteFrequencyData(d);
-    this.levels = bandLevels(d, this.levels);
+    this.current = bandLevels(d, this.current);
   }
 
   stop() {
-    cancelAnimationFrame(this.raf);
     this.stream?.getTracks().forEach((t) => t.stop());
     void this.ctx?.close();
     this.ctx = null;
     this.stream = null;
     this.analyser = null;
     this.data = null;
-    this.levels = { ...silentLevels };
+    this.current = { ...silentLevels };
   }
 }
