@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import {
   ChevronDown,
+  Copy,
   Eye,
   EyeOff,
   FlipHorizontal2,
@@ -11,7 +12,9 @@ import {
   Mic,
   MicOff,
   Minimize2,
+  MoreVertical,
   Pause,
+  Pencil,
   Play,
   Plus,
   RotateCcw,
@@ -27,6 +30,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type DragEvent,
   type DragEventHandler,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -42,6 +46,12 @@ import { ShowPanel } from "@/components/timeline/ShowPanel";
 import { SoundPanel } from "@/components/audio/SoundPanel";
 import { SurfaceLayer } from "@/components/stage/SurfaceLayer";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -64,6 +74,15 @@ import {
 } from "@/lib/stage-transform";
 import { SpatialEngine } from "@/lib/audio-engine";
 import { History, type ShowSnapshot } from "@/lib/history";
+import {
+  createVideo,
+  releaseMediaElements,
+  releaseVideo,
+  unparkVideo,
+  updateVideoPlayback,
+  usedVideoIds,
+  videoOwners,
+} from "@/lib/media-playback";
 import { snapCandidates, snapPoint } from "@/lib/snap";
 import {
   activeClipsAt,
@@ -122,6 +141,7 @@ import {
   defaultOutline,
   lockRectAspect,
   outlineStagePoints,
+  pointInPolygon,
   stageToUv,
   type Pt,
 } from "@/lib/warp";
@@ -167,6 +187,21 @@ const newSurface = (n: number, source: string): Surface => ({
   lockAspect: false,
 });
 
+/** Drag data type for an item dragged from "My media" onto the stage. */
+const MEDIA_DRAG_TYPE = "application/x-prism-media";
+
+/** Nudges a copied surface so it does not hide its original, keeping it inside the stage. */
+const offsetCorners = (corners: Pt[], step = 0.03): Pt[] => {
+  const shift = (values: number[]) => {
+    if (Math.max(...values) + step <= 1) return step;
+    if (Math.min(...values) - step >= 0) return -step;
+    return 0;
+  };
+  const dx = shift(corners.map((corner) => corner.x));
+  const dy = shift(corners.map((corner) => corner.y));
+  return corners.map((corner) => ({ x: corner.x + dx, y: corner.y + dy }));
+};
+
 const RESOLUTION_PRESETS = [
   { label: "1920×1080", w: 1920, h: 1080 },
   { label: "1280×800", w: 1280, h: 800 },
@@ -176,6 +211,7 @@ const RESOLUTION_PRESETS = [
 
 const MENU_WIDTH_KEY = "prism-menu-width";
 const DEFAULT_PATH_LENGTH_KEY = "prism-default-path-length";
+const SHOW_MODE_KEY = "prism-show-mode";
 const DEFAULT_MENU_WIDTH = 352;
 const MIN_MENU_WIDTH = 280;
 const MAX_MENU_WIDTH = 640;
@@ -198,13 +234,8 @@ const defaultTimelineTracks = (): TimelineTrack[] => [
 function mountMedia(meta: Omit<MediaItem, "url">, blob: Blob) {
   const url = URL.createObjectURL(blob);
   if (meta.kind === "video") {
-    const v = document.createElement("video");
-    v.src = url;
-    v.loop = true;
-    v.muted = true;
-    v.playsInline = true;
+    const v = createVideo(url);
     if (meta.trimStart) v.currentTime = meta.trimStart;
-    void v.play();
     mediaElements.set(meta.id, v);
   } else {
     const img = new Image();
@@ -237,6 +268,7 @@ export function Studio() {
   const [surfaces, setSurfaces] = useState<Surface[]>(() => [newSurface(1, "visual:plasma")]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draggedSurfaceId, setDraggedSurfaceId] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState<{ id: string; draft: string } | null>(null);
   const [dropSurface, setDropSurface] = useState<{
     id: string;
     position: "before" | "after";
@@ -280,6 +312,20 @@ export function Studio() {
   const [loaded, setLoaded] = useState(false);
   const [menuWidth, setMenuWidth] = useState(DEFAULT_MENU_WIDTH);
   const [defaultPathLengthMs, setDefaultPathLengthMs] = useState(1000);
+  const [showMode, setShowMode] = useState(false);
+
+  // The timeline, effects and media editor panels cover the stage, and show mode turns its
+  // preview off. Fullscreen always shows it: that is the output when no projector window is used.
+  const stageVisible =
+    fullscreen || (!showMode && view !== "timeline" && view !== "effects" && view !== "editor");
+  const stageVisibleRef = useRef(stageVisible);
+  stageVisibleRef.current = stageVisible;
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const soundsRef = useRef(sounds);
+  soundsRef.current = sounds;
+  // videos being played just long enough to find out whether they have an audio track
+  const probingVideos = useRef(new Set<string>());
 
   const micRef = useRef<MicAnalyser | null>(null);
   const engineRef = useRef<SpatialEngine | null>(null);
@@ -294,6 +340,7 @@ export function Studio() {
   // playing, so the whole editor does not re-render on every animation frame.
   const showTimeRef = useRef(0);
   const movementUiAt = useRef(0);
+  const movementAudioAt = useRef(0);
   const setShowTimeNow = useCallback((t: number) => {
     showTimeRef.current = t;
     setShowTime(t);
@@ -325,6 +372,15 @@ export function Studio() {
   useEffect(() => {
     window.localStorage.setItem(DEFAULT_PATH_LENGTH_KEY, String(defaultPathLengthMs));
   }, [defaultPathLengthMs]);
+
+  useEffect(() => {
+    setShowMode(window.localStorage.getItem(SHOW_MODE_KEY) === "1");
+  }, []);
+
+  const toggleShowMode = (on: boolean) => {
+    setShowMode(on);
+    window.localStorage.setItem(SHOW_MODE_KEY, on ? "1" : "0");
+  };
 
   useEffect(() => {
     setSourceTab(
@@ -364,6 +420,32 @@ export function Studio() {
   };
 
   const selected = surfaces.find((s) => s.id === selectedId) ?? surfaces[0] ?? null;
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+
+  // Ctrl+C keeps the surface here, not on the system clipboard: its video source only
+  // means something inside this show. Timeline clips stay with the original surface.
+  const copiedSurface = useRef<Surface | null>(null);
+
+  /** Adds a copy just above the source surface, nudged so both stay visible, and selects it. */
+  const pasteSurface = useCallback((source: Surface) => {
+    const copy: Surface = {
+      ...source,
+      id: `s${Date.now()}${Math.random().toString(36).slice(2, 6)}`,
+      name: `${source.name.replace(/ copy$/, "")} copy`,
+      corners: offsetCorners(source.corners),
+      outline: source.outline?.map((point) => ({ ...point })),
+    };
+    setSurfaces((prev) => {
+      const at = prev.findIndex((s) => s.id === source.id);
+      const next = [...prev];
+      // earlier in the list is drawn on top
+      next.splice(Math.max(0, at), 0, copy);
+      return next;
+    });
+    setSelectedId(copy.id);
+    return copy;
+  }, []);
 
   const stagePoint = (clientX: number, clientY: number, rect: DOMRect): Pt =>
     stagePointFromClient(
@@ -460,6 +542,22 @@ export function Studio() {
         event.preventDefault();
         return;
       }
+      const plainShortcut = (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey;
+      if (plainShortcut && viewRef.current === "stage") {
+        const key = event.key.toLowerCase();
+        // leave Ctrl+C alone while text on the page is selected
+        if (key === "c" && selectedRef.current && !window.getSelection()?.toString()) {
+          copiedSurface.current = selectedRef.current;
+          event.preventDefault();
+          return;
+        }
+        if (key === "v" && copiedSurface.current) {
+          // pasting again lands one step further on, like a stack of copies
+          copiedSurface.current = pasteSurface(copiedSurface.current);
+          event.preventDefault();
+          return;
+        }
+      }
       if ((event.key === "Delete" || event.key === "Backspace") && selectedClipId) {
         setTimelineClips((prev) => prev.filter((clip) => clip.id !== selectedClipId));
         setSelectedClipId(null);
@@ -468,7 +566,7 @@ export function Studio() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [applySnapshot, selectedClipId]);
+  }, [applySnapshot, pasteSurface, selectedClipId]);
 
   // surfaceId -> media source for the clips active right now. This is recomputed whenever
   // showTime ticks, but it must keep the SAME identity until a clip actually starts or
@@ -498,6 +596,24 @@ export function Studio() {
     [surfaces, timelineSurfaceSources],
   );
 
+  const surfaceVideoOwners = useMemo(() => videoOwners(displaySurfaces), [displaySurfaces]);
+  const stageGlobals = useMemo(
+    () =>
+      view !== "stage" && !fullscreen
+        ? { ...globals, brightness: globals.brightness * 0.35 }
+        : globals,
+    [globals, view, fullscreen],
+  );
+
+  // only changes when a clip starts or stops, not on every tick of the show clock
+  const activeClipIds = useMemo(
+    () =>
+      activeClipsAt(timelineTracks, timelineClips, showTime)
+        .map((clip) => clip.id)
+        .join(),
+    [showTime, timelineClips, timelineTracks],
+  );
+
   const displaySounds = useMemo(
     () =>
       sounds.map((sound) => {
@@ -510,9 +626,13 @@ export function Studio() {
   const reverbRef = useRef(reverb);
   reverbRef.current = reverb;
 
+  const reverbNeeded = timelineClips.some((clip) => (clip.reverbSend ?? 0) > 0);
+  const reverbNeededRef = useRef(reverbNeeded);
+  reverbNeededRef.current = reverbNeeded;
+
   const engine = useCallback(() => {
     if (!engineRef.current) {
-      engineRef.current = new SpatialEngine(room, reverbRef.current);
+      engineRef.current = new SpatialEngine(room, reverbRef.current, reverbNeededRef.current);
       setMaxChannels(engineRef.current.maxChannels);
     }
     return engineRef.current;
@@ -574,7 +694,7 @@ export function Studio() {
     return () => {
       micRef.current?.stop();
       engineRef.current?.destroy();
-      mediaElements.clear();
+      releaseMediaElements();
       channelRef.current?.postMessage({ type: "bye" } satisfies SyncMessage);
       channelRef.current?.close();
     };
@@ -602,12 +722,21 @@ export function Studio() {
     engineRef.current?.applyReverb(reverb);
   }, [reverb]);
 
+  useEffect(() => {
+    engineRef.current?.setReverbNeeded(reverbNeeded);
+  }, [reverbNeeded]);
+
   // ----- projects -----
   const applyProject = useCallback(
     async (project: Project, b: BlobMap) => {
       engineRef.current?.destroy();
       engineRef.current = null;
-      mediaElements.clear();
+      // the previous show's videos must not keep decoding here or in the projector windows
+      channelRef.current?.postMessage({
+        type: "drop-media",
+        ids: [...mediaElements.keys()],
+      } satisfies SyncMessage);
+      releaseMediaElements();
       blobs.current = new Map(b);
       setProjectId(project.id);
       setProjectName(project.name);
@@ -1006,8 +1135,7 @@ export function Studio() {
         duration: 0,
       };
       blobs.current.set(id, file);
-      const wave = await decodeWaveform(file);
-      added.push(await eng.addSound({ ...item, peaks: wave?.peaks }, file));
+      added.push(await eng.addSound(item, file));
       i++;
     }
     if (added.length) {
@@ -1061,7 +1189,7 @@ export function Studio() {
   };
 
   /** Give a video's own audio track a row in the Sound tab. */
-  const registerVideoSound = (item: MediaItem) => {
+  const registerVideoSound = (item: MediaItem, playing: boolean) => {
     const el = mediaElements.get(item.id);
     if (!(el instanceof HTMLVideoElement)) return;
     const eng = engine();
@@ -1078,7 +1206,7 @@ export function Studio() {
       loop: true,
       mute: false,
       solo: false,
-      playing: true,
+      playing,
       color: SOUND_COLORS[i % SOUND_COLORS.length]!,
       heading: 0,
       duration: el.duration || 0,
@@ -1088,9 +1216,13 @@ export function Studio() {
     setSounds((prev) => (prev.some((s) => s.id === added.id) ? prev : [...prev, added]));
   };
 
-  const addMedia = (files: FileList | null) => {
-    if (!files) return;
+  /**
+   * Imports photos and videos. The first one goes onto `target` (by default the selected
+   * surface; null puts nothing on a surface). Returns the imported items.
+   */
+  const addMedia = (files: FileList | File[] | null, target = selected?.id ?? null) => {
     const added: MediaItem[] = [];
+    if (!files) return added;
     Array.from(files).forEach((file, i) => {
       const isVideo = file.type.startsWith("video");
       if (!isVideo && !file.type.startsWith("image")) return;
@@ -1105,19 +1237,25 @@ export function Studio() {
       };
       added.push({ ...meta, url: mountMedia(meta, file) });
     });
-    if (!added.length) return;
+    if (!added.length) return added;
     setMedia((prev) => [...prev, ...added]);
     setEditMediaId(added[0]!.id);
-    if (selected && added[0]) patch(selected.id, { source: `media:${added[0].id}` });
+    if (target && added[0]) patch(target, { source: `media:${added[0].id}` });
     if (channelRef.current) sendMedia(channelRef.current, added);
     for (const item of added) {
       if (item.kind !== "video") continue;
       const el = mediaElements.get(item.id);
       if (!(el instanceof HTMLVideoElement)) continue;
+      // the browser only reports an audio track once it has decoded some of it
+      probingVideos.current.add(item.id);
+      unparkVideo(el);
+      void el.play().catch(() => undefined);
       const check = () => {
         const has = videoHasAudio(el);
+        probingVideos.current.delete(item.id);
         setMedia((prev) => prev.map((m) => (m.id === item.id ? { ...m, hasAudio: has } : m)));
-        if (has) registerVideoSound(item);
+        // only the video that went onto a surface starts out playing
+        if (has) registerVideoSound(item, item.id === added[0]?.id);
       };
       if (el.readyState >= 1) setTimeout(check, 300);
       else el.addEventListener("loadeddata", () => setTimeout(check, 300), { once: true });
@@ -1141,7 +1279,107 @@ export function Studio() {
           );
         });
     }
+    return added;
   };
+
+  // ----- drag and drop onto the stage -----
+  /** "new" while the pointer is over empty stage, a surface id while over that surface */
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+
+  /** The topmost visible surface under a stage point (earlier in the list is on top). */
+  const surfaceAt = (point: Pt) =>
+    surfaces.find(
+      (s) => s.visible && pointInPolygon(point, outlineStagePoints(s.corners, s.outline)),
+    ) ?? null;
+
+  /** New 16:9 surface centred on the drop point, kept inside the stage. */
+  const surfaceAround = (point: Pt, n: number, source: string): Surface => {
+    const w = 0.3;
+    const h = Math.min(0.9, w * ((stage.w || 16) / (stage.h || 9)) * (9 / 16));
+    const x = Math.max(0, Math.min(1 - w, point.x - w / 2));
+    const y = Math.max(0, Math.min(1 - h, point.y - h / 2));
+    return {
+      ...newSurface(n, source),
+      corners: [
+        { x, y },
+        { x: x + w, y },
+        { x: x + w, y: y + h },
+        { x, y: y + h },
+      ],
+    };
+  };
+
+  /**
+   * Dropped onto a surface: the first item plays there, any others only land in "My media".
+   * Dropped onto empty stage: every item gets a new surface of its own, on top.
+   */
+  const placeDroppedMedia = (mediaIds: string[], point: Pt) => {
+    if (!mediaIds.length) return;
+    const hit = surfaceAt(point);
+    if (hit) {
+      patch(hit.id, { source: `media:${mediaIds[0]}` });
+      setSelectedId(hit.id);
+      return;
+    }
+    const created = mediaIds.map((id, i) =>
+      surfaceAround(
+        { x: point.x + i * 0.03, y: point.y + i * 0.03 },
+        surfaces.length + 1 + i,
+        `media:${id}`,
+      ),
+    );
+    setSurfaces((prev) => [...created.reverse(), ...prev]);
+    setSelectedId(created[0]!.id);
+  };
+
+  const onStageDrop = (event: DragEvent<HTMLDivElement>) => {
+    setDropTarget(null);
+    if (view !== "stage" || fullscreen) return;
+    event.preventDefault();
+    const point = stagePoint(
+      event.clientX,
+      event.clientY,
+      event.currentTarget.getBoundingClientRect(),
+    );
+    const fromLibrary = event.dataTransfer.getData(MEDIA_DRAG_TYPE);
+    if (fromLibrary) {
+      if (media.some((m) => m.id === fromLibrary)) placeDroppedMedia([fromLibrary], point);
+      return;
+    }
+    const added = addMedia(Array.from(event.dataTransfer.files), null);
+    placeDroppedMedia(
+      added.map((item) => item.id),
+      point,
+    );
+  };
+
+  const onStageDragOver = (event: DragEvent<HTMLDivElement>) => {
+    if (view !== "stage" || fullscreen) return;
+    const types = event.dataTransfer.types;
+    if (!types.includes("Files") && !types.includes(MEDIA_DRAG_TYPE)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    const point = stagePoint(
+      event.clientX,
+      event.clientY,
+      event.currentTarget.getBoundingClientRect(),
+    );
+    setDropTarget(surfaceAt(point)?.id ?? "new");
+  };
+
+  // A file dropped anywhere outside the stage would make the window open that file in
+  // place of Prism, throwing away anything that is not saved.
+  useEffect(() => {
+    const keepPrism = (event: globalThis.DragEvent) => {
+      if (event.dataTransfer?.types.includes("Files")) event.preventDefault();
+    };
+    window.addEventListener("dragover", keepPrism);
+    window.addEventListener("drop", keepPrism);
+    return () => {
+      window.removeEventListener("dragover", keepPrism);
+      window.removeEventListener("drop", keepPrism);
+    };
+  }, []);
 
   const patchMedia = (id: string, next: Partial<MediaItem>) => {
     setMedia((prev) =>
@@ -1162,9 +1400,9 @@ export function Studio() {
     const item = media.find((m) => m.id === id);
     for (const s of sounds.filter((s) => s.mediaId === id)) removeSound(s.id);
     const el = mediaElements.get(id);
-    if (el instanceof HTMLVideoElement) el.pause();
     mediaElements.delete(id);
     mediaMeta.delete(id);
+    if (el instanceof HTMLVideoElement) releaseVideo(el);
     if (item) URL.revokeObjectURL(item.url);
     const rest = media.filter((m) => m.id !== id);
     if (item && !rest.some((m) => m.blobId === item.blobId)) blobs.current.delete(item.blobId);
@@ -1375,10 +1613,30 @@ export function Studio() {
   };
 
   // ----- v5 timeline -----
+  /**
+   * Does this window need the video to run? Projector windows follow the show clock on their
+   * own, so with the stage out of sight only a video whose sound is routed from here has to.
+   */
+  const editorNeedsVideo = useCallback(
+    (mediaId: string) =>
+      stageVisibleRef.current ||
+      soundsRef.current.some((s) => s.kind === "video" && s.mediaId === mediaId && !s.mute),
+    [],
+  );
+
+  /** Returns whether a clip started or stopped. */
   const applyTimelineAt = useCallback(
     (time: number, playing: boolean) => {
       const active = activeClipsAt(timelineTracks, timelineClips, time);
       const nextIds = new Set(active.map((clip) => clip.id));
+      const clipsChanged =
+        nextIds.size !== activeTimelineClips.current.size ||
+        active.some((clip) => !activeTimelineClips.current.has(clip.id));
+      const nowMs = performance.now();
+      // A moving sound glides between position updates anyway, so 30 a second sounds the
+      // same as every frame and costs half the audio parameter changes.
+      const moveSounds = !playing || nowMs - movementAudioAt.current >= 33;
+      if (moveSounds) movementAudioAt.current = nowMs;
       const activeSoundIds = new Set(
         active
           .filter((clip) => clip.kind === "audio")
@@ -1397,6 +1655,10 @@ export function Studio() {
         if (clip.kind === "visual" && clip.mediaId) {
           const element = mediaElements.get(clip.mediaId);
           if (element instanceof HTMLVideoElement) {
+            if (!editorNeedsVideo(clip.mediaId)) {
+              if (!element.paused) element.pause();
+              continue;
+            }
             // Hard seeks are expensive on long-GOP MP4s, so only correct real drift and
             // never stack a new seek on top of one that is still in flight.
             const clipJustStarted = !activeTimelineClips.current.has(clip.id);
@@ -1420,6 +1682,7 @@ export function Studio() {
           if (playing) engineRef.current?.playSound(clip.soundId);
           else engineRef.current?.pauseSound(clip.soundId);
         } else if (clip.kind === "movement" && clip.pathId && clip.soundId) {
+          if (!moveSounds) continue;
           const path = soundPaths.find((item) => item.id === clip.pathId);
           if (!path) continue;
           const elapsed = Math.max(0, time - clip.start);
@@ -1427,10 +1690,9 @@ export function Studio() {
           const position = positionOnPath(path, pathTime);
           if (position) {
             engineRef.current?.setPosition(clip.soundId, position);
-            // audio gets the exact position every frame; the on-screen marker only needs
-            // ~15 Hz, and each state update re-renders the whole editor
-            const nowMs = performance.now();
-            if (!playing || nowMs - movementUiAt.current >= 66) {
+            // the on-screen marker only exists in the room view and only needs ~15 Hz there;
+            // each state update re-renders the whole editor
+            if (!playing || (viewRef.current === "room" && nowMs - movementUiAt.current >= 66)) {
               movementUiAt.current = nowMs;
               setMovementPositions((current) => {
                 const previous = current[clip.soundId!];
@@ -1458,9 +1720,51 @@ export function Studio() {
         }
       }
       activeTimelineClips.current = nextIds;
+      return clipsChanged;
     },
-    [soundPaths, timelineClips, timelineTracks],
+    [editorNeedsVideo, soundPaths, timelineClips, timelineTracks],
   );
+
+  // Decide which videos run in this window. Everything else stays parked, so a video that is
+  // only sitting in "My media" costs nothing.
+  useEffect(() => {
+    const wanted = stageVisible ? usedVideoIds(displaySurfaces, testPattern) : new Set<string>();
+    const driven = new Set(probingVideos.current);
+    for (const sound of sounds) {
+      if (sound.kind === "video" && sound.mediaId && sound.playing) wanted.add(sound.mediaId);
+    }
+    for (const clip of activeClipsAt(timelineTracks, timelineClips, showTimeRef.current)) {
+      if (clip.kind === "visual" && clip.mediaId && editorNeedsVideo(clip.mediaId)) {
+        driven.add(clip.mediaId);
+      } else if (clip.kind === "audio") {
+        const mediaId = sounds.find((sound) => sound.id === clip.soundId)?.mediaId;
+        if (mediaId) driven.add(mediaId);
+      }
+    }
+    updateVideoPlayback(wanted, driven);
+  }, [
+    activeClipIds,
+    displaySurfaces,
+    editorNeedsVideo,
+    media,
+    sounds,
+    stageVisible,
+    testPattern,
+    timelineClips,
+    timelineTracks,
+  ]);
+
+  // while paused, a video that comes back into view has to catch up with the timeline position
+  useEffect(() => {
+    if (!stageVisible || showPlaying) return;
+    const time = showTimeRef.current;
+    for (const clip of activeClipsAt(timelineTracks, timelineClips, time)) {
+      const element = clip.kind === "visual" && clip.mediaId && mediaElements.get(clip.mediaId);
+      if (element instanceof HTMLVideoElement)
+        element.currentTime = clip.inPoint + Math.max(0, time - clip.start);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stageVisible]);
 
   const runShow = () => {
     if (!timelineClips.length) return;
@@ -1503,13 +1807,14 @@ export function Studio() {
       raf = requestAnimationFrame(tick);
       const t = (performance.now() - showStart.current) / 1000;
       showTimeRef.current = t;
-      // the UI (playhead, active-clip lookup) only needs ~15 Hz; re-rendering this
-      // whole component every frame starves the main thread and causes video stalls
-      if (now - lastUi >= 66) {
+      const clipsChanged = applyTimelineAt(t, true);
+      // Re-rendering this whole component starves the main thread and causes video stalls, so
+      // the clock only reaches React at ~15 Hz where a playhead is on screen and 4 Hz elsewhere.
+      // A clip starting or stopping goes through at once: surfaces switch source on it.
+      if (clipsChanged || now - lastUi >= (viewRef.current === "timeline" ? 66 : 250)) {
         lastUi = now;
         setShowTime(t);
       }
-      applyTimelineAt(t, true);
       if (t >= timelineLength(timelineClips)) {
         setShowTimeNow(t);
         setShowPlaying(false);
@@ -1611,9 +1916,7 @@ export function Studio() {
           <p className="mt-1 text-xs text-muted-foreground">
             Projection mapping and spatial sound in one application. Made by Innopixel.
           </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Version {packageJson.version}
-          </p>
+          <p className="mt-1 text-xs text-muted-foreground">Version {packageJson.version}</p>
         </header>
 
         <CollapsibleSection
@@ -1736,6 +2039,20 @@ export function Studio() {
               onCheckedChange={() => void toggleMic()}
               aria-label="Toggle microphone input"
               title="Enable or disable microphone input"
+            />
+          </div>
+          <div className="flex items-center justify-between rounded-lg border border-border p-3">
+            <div className="text-sm">
+              Show mode
+              <p className="text-xs text-muted-foreground">
+                Turns the preview here off. Projector windows keep running.
+              </p>
+            </div>
+            <Switch
+              checked={showMode}
+              onCheckedChange={toggleShowMode}
+              aria-label="Toggle show mode"
+              title="Save CPU during a show by turning the preview in this window off"
             />
           </div>
           <LabeledRow
@@ -1888,12 +2205,37 @@ export function Studio() {
                   <span className="grid size-5 shrink-0 place-items-center rounded bg-muted text-[10px] font-semibold tabular-nums">
                     {idx + 1}
                   </span>
-                  <button className="min-w-0 flex-1 text-left" onClick={() => setSelectedId(s.id)}>
-                    <span className="block truncate text-sm font-medium">{s.name}</span>
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {sourceLabel(s.source)}
-                    </span>
-                  </button>
+                  {renaming?.id === s.id ? (
+                    <Input
+                      autoFocus
+                      value={renaming.draft}
+                      aria-label="Surface name"
+                      className="h-8 min-w-0 flex-1"
+                      onFocus={(e) => e.currentTarget.select()}
+                      onChange={(e) => setRenaming({ id: s.id, draft: e.target.value })}
+                      onBlur={(e) => {
+                        const name = e.currentTarget.value.trim();
+                        if (name && name !== s.name) patch(s.id, { name });
+                        setRenaming(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") e.currentTarget.value = s.name;
+                        if (e.key === "Enter" || e.key === "Escape") e.currentTarget.blur();
+                      }}
+                    />
+                  ) : (
+                    <button
+                      className="min-w-0 flex-1 text-left"
+                      title="Double-click to rename"
+                      onClick={() => setSelectedId(s.id)}
+                      onDoubleClick={() => setRenaming({ id: s.id, draft: s.name })}
+                    >
+                      <span className="block truncate text-sm font-medium">{s.name}</span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {sourceLabel(s.source)}
+                      </span>
+                    </button>
+                  )}
                   <button
                     aria-label={s.visible ? "Hide surface" : "Show surface"}
                     title={s.visible ? "Hide this surface" : "Show this surface"}
@@ -1903,13 +2245,36 @@ export function Studio() {
                     {s.visible ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
                   </button>
                   <button
-                    aria-label="Delete surface"
-                    title={`Delete ${s.name}`}
-                    onClick={() => setSurfaces((prev) => prev.filter((x) => x.id !== s.id))}
-                    className="text-muted-foreground hover:text-destructive"
+                    aria-label="Duplicate surface"
+                    title={`Duplicate ${s.name} (or Ctrl+C, Ctrl+V on the stage)`}
+                    onClick={() => pasteSurface(s)}
+                    className="text-muted-foreground hover:text-foreground"
                   >
-                    <Trash2 className="size-4" />
+                    <Copy className="size-4" />
                   </button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        aria-label="Surface options"
+                        title={`Rename or delete ${s.name}`}
+                        className="text-muted-foreground hover:text-foreground"
+                      >
+                        <MoreVertical className="size-4" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    {/* keep focus off the trigger on close so the rename field keeps it */}
+                    <DropdownMenuContent align="end" onCloseAutoFocus={(e) => e.preventDefault()}>
+                      <DropdownMenuItem onClick={() => setRenaming({ id: s.id, draft: s.name })}>
+                        <Pencil className="size-4" /> Rename
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive"
+                        onClick={() => setSurfaces((prev) => prev.filter((x) => x.id !== s.id))}
+                      >
+                        <Trash2 className="size-4" /> Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
                 {selected?.id === s.id && (
                   <div className="mt-3 space-y-2">
@@ -2302,6 +2667,13 @@ export function Studio() {
                     return (
                       <div
                         key={m.id}
+                        draggable
+                        title={`${m.name}: drag onto a surface on the stage`}
+                        onDragStart={(event) => {
+                          event.dataTransfer.effectAllowed = "copy";
+                          event.dataTransfer.setData(MEDIA_DRAG_TYPE, m.id);
+                        }}
+                        onDragEnd={() => setDropTarget(null)}
                         className={`relative aspect-square overflow-hidden rounded-md border ${
                           active ? "border-primary" : "border-border"
                         }`}
@@ -2316,12 +2688,12 @@ export function Studio() {
                           {m.kind === "image" ? (
                             <img src={m.url} alt={m.name} className="size-full object-cover" />
                           ) : (
+                            // a still frame: a playing thumbnail is one more running decoder
                             <video
-                              src={m.url}
+                              src={`${m.url}#t=0.1`}
                               muted
-                              loop
                               playsInline
-                              autoPlay
+                              preload="metadata"
                               className="size-full object-cover"
                             />
                           )}
@@ -2603,6 +2975,12 @@ export function Studio() {
           onAuxClick={(event) => {
             if (event.button === 1) event.preventDefault();
           }}
+          onDragOver={onStageDragOver}
+          onDragLeave={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+              setDropTarget(null);
+          }}
+          onDrop={onStageDrop}
         >
           <div
             className="absolute inset-0"
@@ -2614,21 +2992,49 @@ export function Studio() {
               transformOrigin: "top left",
             }}
           >
-            {[...displaySurfaces].reverse().map((s) => (
-              <SurfaceLayer
-                key={s.id}
-                surface={s}
-                index={surfaces.findIndex((surface) => surface.id === s.id)}
-                stage={stage}
-                globals={
-                  view !== "stage" && !fullscreen
-                    ? { ...globals, brightness: globals.brightness * 0.35 }
-                    : globals
-                }
-                testPattern={testPattern}
-                levels={levels}
-              />
-            ))}
+            {stageVisible &&
+              [...displaySurfaces].reverse().map((s) => (
+                <SurfaceLayer
+                  key={s.id}
+                  surface={s}
+                  index={surfaces.findIndex((surface) => surface.id === s.id)}
+                  stage={stage}
+                  globals={stageGlobals}
+                  testPattern={testPattern}
+                  levels={levels}
+                  ownsVideo={surfaceVideoOwners.get(s.source) === s.id}
+                  // with a projector open this is only a preview
+                  maxFps={openOutputs.length > 0 && !fullscreen ? 30 : 60}
+                />
+              ))}
+            {showMode && !fullscreen && view === "stage" && (
+              <p className="absolute inset-x-0 top-1/2 text-center text-sm text-muted-foreground">
+                Show mode: the preview is off. Projector windows keep running.
+              </p>
+            )}
+            {dropTarget && view === "stage" && (
+              <div className="pointer-events-none absolute inset-0 z-40">
+                <svg className="absolute inset-0 size-full">
+                  {surfaces
+                    .filter((s) => s.id === dropTarget)
+                    .map((s) => (
+                      <polygon
+                        key={s.id}
+                        points={outlineStagePoints(s.corners, s.outline)
+                          .map((c) => `${c.x * stage.w},${c.y * stage.h}`)
+                          .join(" ")}
+                        className="fill-primary/25 stroke-primary"
+                        strokeWidth={3}
+                      />
+                    ))}
+                </svg>
+                <p className="absolute inset-x-0 top-3 mx-auto w-fit rounded bg-background/90 px-2 py-1 text-xs text-foreground">
+                  {dropTarget === "new"
+                    ? "Drop to make a new surface here"
+                    : `Drop to show it on ${surfaces.find((s) => s.id === dropTarget)?.name ?? "this surface"}`}
+                </p>
+              </div>
+            )}
             {view === "room" && !fullscreen && (
               <RoomView
                 stage={stage}
@@ -2778,7 +3184,8 @@ export function Studio() {
                       </text>
                     </g>
                   ))}
-                {surfaces
+                {/* a copy: reverse() on the state array itself flipped the surface order on every render */}
+                {[...surfaces]
                   .reverse()
                   .filter((s) => s.visible)
                   .map((s) => (

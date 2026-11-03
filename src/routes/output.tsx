@@ -3,6 +3,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { SurfaceLayer } from "@/components/stage/SurfaceLayer";
 import { paintBlend } from "@/lib/blend";
+import {
+  createVideo,
+  releaseMediaElements,
+  releaseVideo,
+  updateVideoPlayback,
+  usedVideoIds,
+  videoOwners,
+} from "@/lib/media-playback";
 import { openChannel, type OutputSnapshot, type SyncMessage } from "@/lib/sync";
 import {
   defaultBlend,
@@ -63,19 +71,35 @@ export function OutputPage() {
   useEffect(() => {
     const ch = openChannel();
     if (!ch) return;
-    const urls: string[] = [];
     const id = new URLSearchParams(window.location.search).get("id") || "out1";
+    let surfaces: OutputSnapshot["surfaces"] = [];
+    let testPattern: OutputSnapshot["testPattern"] = "grid";
+    let clockVideos = new Set<string>();
+    // A local copy: the `connected` state seen by the timer below would stay false forever,
+    // and every "hello" makes the editor send all media and state to every window again.
+    let linked = false;
+    // only what this projector shows runs here, not everything in the show
+    const updatePlayback = () =>
+      updateVideoPlayback(usedVideoIds(surfaces, testPattern), clockVideos);
     ch.onmessage = (e: MessageEvent<SyncMessage>) => {
       const msg = e.data;
       if (msg.type === "state") {
         setSnap(msg.snapshot);
         for (const m of msg.snapshot.media) mediaMeta.set(m.id, m);
         setConnected(true);
+        linked = true;
+        surfaces = msg.snapshot.surfaces.filter((s) => (s.outputId || "out1") === id);
+        testPattern = msg.snapshot.testPattern;
+        updatePlayback();
       } else if (msg.type === "clock") {
+        const used = usedVideoIds(surfaces, testPattern);
+        clockVideos = new Set();
         // follow the editor timeline instead of looping on our own
         for (const [mediaId, at] of Object.entries(msg.videos)) {
           const el = mediaElements.get(mediaId);
-          if (!(el instanceof HTMLVideoElement)) continue;
+          // a clip on another projector's surface is that window's job
+          if (!(el instanceof HTMLVideoElement) || !used.has(mediaId)) continue;
+          clockVideos.add(mediaId);
           // Clock messages arrive a few times a second and can be delayed when the editor
           // is busy. Only hard-seek on real drift, and never on top of a seek in flight:
           // every seek here also makes the visible <video> re-seek to follow this clock.
@@ -86,49 +110,44 @@ export function OutputPage() {
             el.pause();
           }
         }
+        updatePlayback();
       } else if (msg.type === "drop-media") {
         for (const dropped of msg.ids) {
           const el = mediaElements.get(dropped);
-          if (el instanceof HTMLVideoElement) el.pause();
           mediaElements.delete(dropped);
           mediaMeta.delete(dropped);
+          if (el) URL.revokeObjectURL(el.src);
+          if (el instanceof HTMLVideoElement) releaseVideo(el);
         }
       } else if (msg.type === "media") {
         for (const { meta, file } of msg.items) {
           mediaMeta.set(meta.id, meta);
           if (mediaElements.has(meta.id)) continue;
           const url = URL.createObjectURL(file);
-          urls.push(url);
           if (meta.kind === "video") {
-            const v = document.createElement("video");
-            v.src = url;
-            v.loop = true;
-            v.muted = true;
-            v.playsInline = true;
-            void v.play();
-            mediaElements.set(meta.id, v);
+            mediaElements.set(meta.id, createVideo(url));
           } else {
             const img = new Image();
             img.src = url;
             mediaElements.set(meta.id, img);
           }
         }
+        updatePlayback();
       } else if (msg.type === "bye") {
         setConnected(false);
+        linked = false;
       }
     };
     ch.postMessage({ type: "hello", outputId: id } satisfies SyncMessage);
     const ping = setInterval(() => {
-      if (!connected) ch.postMessage({ type: "hello", outputId: id } satisfies SyncMessage);
+      if (!linked) ch.postMessage({ type: "hello", outputId: id } satisfies SyncMessage);
     }, 2000);
     return () => {
       clearInterval(ping);
       ch.close();
-      urls.forEach((u) => URL.revokeObjectURL(u));
-      mediaElements.clear();
+      releaseMediaElements();
       mediaMeta.clear();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const output = useMemo(
@@ -146,10 +165,15 @@ export function OutputPage() {
   );
 
   // the shared canvas is bigger than this window; we show our slice of it
-  const canvas = {
-    w: stage.w / Math.max(0.05, region.w),
-    h: stage.h / Math.max(0.05, region.h),
-  };
+  const canvas = useMemo(
+    () => ({
+      w: stage.w / Math.max(0.05, region.w),
+      h: stage.h / Math.max(0.05, region.h),
+    }),
+    [stage.w, stage.h, region.w, region.h],
+  );
+  // the sound lives in the editor window, so nothing here reacts to it
+  const globals = useMemo(() => ({ ...snap.globals, audioReactive: false }), [snap.globals]);
 
   useEffect(() => {
     const el = maskRef.current;
@@ -169,7 +193,11 @@ export function OutputPage() {
     else void document.documentElement.requestFullscreen();
   };
 
-  const mine = snap.surfaces.filter((s) => (s.outputId || "out1") === outputId);
+  const mine = useMemo(
+    () => snap.surfaces.filter((s) => (s.outputId || "out1") === outputId),
+    [snap.surfaces, outputId],
+  );
+  const owners = useMemo(() => videoOwners(mine), [mine]);
 
   return (
     <div
@@ -192,9 +220,10 @@ export function OutputPage() {
             surface={s}
             index={mine.findIndex((surface) => surface.id === s.id)}
             stage={canvas}
-            globals={{ ...snap.globals, audioReactive: false }}
+            globals={globals}
             testPattern={snap.testPattern}
             levels={null}
+            ownsVideo={owners.get(s.source) === s.id}
           />
         ))}
       </div>
