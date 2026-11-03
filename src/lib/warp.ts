@@ -199,6 +199,19 @@ export const outlineStagePoints = (corners: Pt[], outline: OutlinePt[] | undefin
   );
 };
 
+/** Whether p lies inside the polygon (even-odd rule, so a concave outline works too). */
+export const pointInPolygon = (p: Pt, polygon: Pt[]) => {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const a = polygon[i]!;
+    const b = polygon[j]!;
+    if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) {
+      inside = !inside;
+    }
+  }
+  return inside;
+};
+
 /** Closest point on segment a-b to p, and how far along (0..1). */
 export const closestOnSegment = (p: Pt, a: Pt, b: Pt) => {
   const dx = b.x - a.x;

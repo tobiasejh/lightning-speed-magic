@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import {
   ChevronDown,
+  Copy,
   Eye,
   EyeOff,
   FlipHorizontal2,
@@ -27,6 +28,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type DragEvent,
   type DragEventHandler,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -122,6 +124,7 @@ import {
   defaultOutline,
   lockRectAspect,
   outlineStagePoints,
+  pointInPolygon,
   stageToUv,
   type Pt,
 } from "@/lib/warp";
@@ -166,6 +169,21 @@ const newSurface = (n: number, source: string): Surface => ({
   renderH: 720,
   lockAspect: false,
 });
+
+/** Drag data type for an item dragged from "My media" onto the stage. */
+const MEDIA_DRAG_TYPE = "application/x-prism-media";
+
+/** Nudges a copied surface so it does not hide its original, keeping it inside the stage. */
+const offsetCorners = (corners: Pt[], step = 0.03): Pt[] => {
+  const shift = (values: number[]) => {
+    if (Math.max(...values) + step <= 1) return step;
+    if (Math.min(...values) - step >= 0) return -step;
+    return 0;
+  };
+  const dx = shift(corners.map((corner) => corner.x));
+  const dy = shift(corners.map((corner) => corner.y));
+  return corners.map((corner) => ({ x: corner.x + dx, y: corner.y + dy }));
+};
 
 const RESOLUTION_PRESETS = [
   { label: "1920×1080", w: 1920, h: 1080 },
@@ -364,6 +382,34 @@ export function Studio() {
   };
 
   const selected = surfaces.find((s) => s.id === selectedId) ?? surfaces[0] ?? null;
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+  const viewRef = useRef(view);
+  viewRef.current = view;
+
+  // Ctrl+C keeps the surface here, not on the system clipboard: its video source only
+  // means something inside this show. Timeline clips stay with the original surface.
+  const copiedSurface = useRef<Surface | null>(null);
+
+  /** Adds a copy just above the source surface, nudged so both stay visible, and selects it. */
+  const pasteSurface = useCallback((source: Surface) => {
+    const copy: Surface = {
+      ...source,
+      id: `s${Date.now()}${Math.random().toString(36).slice(2, 6)}`,
+      name: `${source.name.replace(/ copy$/, "")} copy`,
+      corners: offsetCorners(source.corners),
+      outline: source.outline?.map((point) => ({ ...point })),
+    };
+    setSurfaces((prev) => {
+      const at = prev.findIndex((s) => s.id === source.id);
+      const next = [...prev];
+      // earlier in the list is drawn on top
+      next.splice(Math.max(0, at), 0, copy);
+      return next;
+    });
+    setSelectedId(copy.id);
+    return copy;
+  }, []);
 
   const stagePoint = (clientX: number, clientY: number, rect: DOMRect): Pt =>
     stagePointFromClient(
@@ -460,6 +506,22 @@ export function Studio() {
         event.preventDefault();
         return;
       }
+      const plainShortcut = (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey;
+      if (plainShortcut && viewRef.current === "stage") {
+        const key = event.key.toLowerCase();
+        // leave Ctrl+C alone while text on the page is selected
+        if (key === "c" && selectedRef.current && !window.getSelection()?.toString()) {
+          copiedSurface.current = selectedRef.current;
+          event.preventDefault();
+          return;
+        }
+        if (key === "v" && copiedSurface.current) {
+          // pasting again lands one step further on, like a stack of copies
+          copiedSurface.current = pasteSurface(copiedSurface.current);
+          event.preventDefault();
+          return;
+        }
+      }
       if ((event.key === "Delete" || event.key === "Backspace") && selectedClipId) {
         setTimelineClips((prev) => prev.filter((clip) => clip.id !== selectedClipId));
         setSelectedClipId(null);
@@ -468,7 +530,7 @@ export function Studio() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [applySnapshot, selectedClipId]);
+  }, [applySnapshot, pasteSurface, selectedClipId]);
 
   // surfaceId -> media source for the clips active right now. This is recomputed whenever
   // showTime ticks, but it must keep the SAME identity until a clip actually starts or
@@ -1088,9 +1150,13 @@ export function Studio() {
     setSounds((prev) => (prev.some((s) => s.id === added.id) ? prev : [...prev, added]));
   };
 
-  const addMedia = (files: FileList | null) => {
-    if (!files) return;
+  /**
+   * Imports photos and videos. The first one goes onto `target` (by default the selected
+   * surface; null puts nothing on a surface). Returns the imported items.
+   */
+  const addMedia = (files: FileList | File[] | null, target = selected?.id ?? null) => {
     const added: MediaItem[] = [];
+    if (!files) return added;
     Array.from(files).forEach((file, i) => {
       const isVideo = file.type.startsWith("video");
       if (!isVideo && !file.type.startsWith("image")) return;
@@ -1105,10 +1171,10 @@ export function Studio() {
       };
       added.push({ ...meta, url: mountMedia(meta, file) });
     });
-    if (!added.length) return;
+    if (!added.length) return added;
     setMedia((prev) => [...prev, ...added]);
     setEditMediaId(added[0]!.id);
-    if (selected && added[0]) patch(selected.id, { source: `media:${added[0].id}` });
+    if (target && added[0]) patch(target, { source: `media:${added[0].id}` });
     if (channelRef.current) sendMedia(channelRef.current, added);
     for (const item of added) {
       if (item.kind !== "video") continue;
@@ -1141,7 +1207,107 @@ export function Studio() {
           );
         });
     }
+    return added;
   };
+
+  // ----- drag and drop onto the stage -----
+  /** "new" while the pointer is over empty stage, a surface id while over that surface */
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+
+  /** The topmost visible surface under a stage point (earlier in the list is on top). */
+  const surfaceAt = (point: Pt) =>
+    surfaces.find(
+      (s) => s.visible && pointInPolygon(point, outlineStagePoints(s.corners, s.outline)),
+    ) ?? null;
+
+  /** New 16:9 surface centred on the drop point, kept inside the stage. */
+  const surfaceAround = (point: Pt, n: number, source: string): Surface => {
+    const w = 0.3;
+    const h = Math.min(0.9, w * ((stage.w || 16) / (stage.h || 9)) * (9 / 16));
+    const x = Math.max(0, Math.min(1 - w, point.x - w / 2));
+    const y = Math.max(0, Math.min(1 - h, point.y - h / 2));
+    return {
+      ...newSurface(n, source),
+      corners: [
+        { x, y },
+        { x: x + w, y },
+        { x: x + w, y: y + h },
+        { x, y: y + h },
+      ],
+    };
+  };
+
+  /**
+   * Dropped onto a surface: the first item plays there, any others only land in "My media".
+   * Dropped onto empty stage: every item gets a new surface of its own, on top.
+   */
+  const placeDroppedMedia = (mediaIds: string[], point: Pt) => {
+    if (!mediaIds.length) return;
+    const hit = surfaceAt(point);
+    if (hit) {
+      patch(hit.id, { source: `media:${mediaIds[0]}` });
+      setSelectedId(hit.id);
+      return;
+    }
+    const created = mediaIds.map((id, i) =>
+      surfaceAround(
+        { x: point.x + i * 0.03, y: point.y + i * 0.03 },
+        surfaces.length + 1 + i,
+        `media:${id}`,
+      ),
+    );
+    setSurfaces((prev) => [...created.reverse(), ...prev]);
+    setSelectedId(created[0]!.id);
+  };
+
+  const onStageDrop = (event: DragEvent<HTMLDivElement>) => {
+    setDropTarget(null);
+    if (view !== "stage" || fullscreen) return;
+    event.preventDefault();
+    const point = stagePoint(
+      event.clientX,
+      event.clientY,
+      event.currentTarget.getBoundingClientRect(),
+    );
+    const fromLibrary = event.dataTransfer.getData(MEDIA_DRAG_TYPE);
+    if (fromLibrary) {
+      if (media.some((m) => m.id === fromLibrary)) placeDroppedMedia([fromLibrary], point);
+      return;
+    }
+    const added = addMedia(Array.from(event.dataTransfer.files), null);
+    placeDroppedMedia(
+      added.map((item) => item.id),
+      point,
+    );
+  };
+
+  const onStageDragOver = (event: DragEvent<HTMLDivElement>) => {
+    if (view !== "stage" || fullscreen) return;
+    const types = event.dataTransfer.types;
+    if (!types.includes("Files") && !types.includes(MEDIA_DRAG_TYPE)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    const point = stagePoint(
+      event.clientX,
+      event.clientY,
+      event.currentTarget.getBoundingClientRect(),
+    );
+    setDropTarget(surfaceAt(point)?.id ?? "new");
+  };
+
+  // A file dropped anywhere outside the stage would make the window open that file in
+  // place of Prism, throwing away anything that is not saved.
+  useEffect(() => {
+    const keepPrism = (event: globalThis.DragEvent) => {
+      if (event.dataTransfer?.types.includes("Files")) event.preventDefault();
+    };
+    window.addEventListener("dragover", keepPrism);
+    window.addEventListener("drop", keepPrism);
+    return () => {
+      window.removeEventListener("dragover", keepPrism);
+      window.removeEventListener("drop", keepPrism);
+    };
+  }, []);
 
   const patchMedia = (id: string, next: Partial<MediaItem>) => {
     setMedia((prev) =>
@@ -1611,9 +1777,7 @@ export function Studio() {
           <p className="mt-1 text-xs text-muted-foreground">
             Projection mapping and spatial sound in one application. Made by Innopixel.
           </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Version {packageJson.version}
-          </p>
+          <p className="mt-1 text-xs text-muted-foreground">Version {packageJson.version}</p>
         </header>
 
         <CollapsibleSection
@@ -1901,6 +2065,14 @@ export function Studio() {
                     className="text-muted-foreground hover:text-foreground"
                   >
                     {s.visible ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
+                  </button>
+                  <button
+                    aria-label="Duplicate surface"
+                    title={`Duplicate ${s.name} (or Ctrl+C, Ctrl+V on the stage)`}
+                    onClick={() => pasteSurface(s)}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <Copy className="size-4" />
                   </button>
                   <button
                     aria-label="Delete surface"
@@ -2302,6 +2474,13 @@ export function Studio() {
                     return (
                       <div
                         key={m.id}
+                        draggable
+                        title={`${m.name}: drag onto a surface on the stage`}
+                        onDragStart={(event) => {
+                          event.dataTransfer.effectAllowed = "copy";
+                          event.dataTransfer.setData(MEDIA_DRAG_TYPE, m.id);
+                        }}
+                        onDragEnd={() => setDropTarget(null)}
                         className={`relative aspect-square overflow-hidden rounded-md border ${
                           active ? "border-primary" : "border-border"
                         }`}
@@ -2603,6 +2782,12 @@ export function Studio() {
           onAuxClick={(event) => {
             if (event.button === 1) event.preventDefault();
           }}
+          onDragOver={onStageDragOver}
+          onDragLeave={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+              setDropTarget(null);
+          }}
+          onDrop={onStageDrop}
         >
           <div
             className="absolute inset-0"
@@ -2629,6 +2814,29 @@ export function Studio() {
                 levels={levels}
               />
             ))}
+            {dropTarget && view === "stage" && (
+              <div className="pointer-events-none absolute inset-0 z-40">
+                <svg className="absolute inset-0 size-full">
+                  {surfaces
+                    .filter((s) => s.id === dropTarget)
+                    .map((s) => (
+                      <polygon
+                        key={s.id}
+                        points={outlineStagePoints(s.corners, s.outline)
+                          .map((c) => `${c.x * stage.w},${c.y * stage.h}`)
+                          .join(" ")}
+                        className="fill-primary/25 stroke-primary"
+                        strokeWidth={3}
+                      />
+                    ))}
+                </svg>
+                <p className="absolute inset-x-0 top-3 mx-auto w-fit rounded bg-background/90 px-2 py-1 text-xs text-foreground">
+                  {dropTarget === "new"
+                    ? "Drop to make a new surface here"
+                    : `Drop to show it on ${surfaces.find((s) => s.id === dropTarget)?.name ?? "this surface"}`}
+                </p>
+              </div>
+            )}
             {view === "room" && !fullscreen && (
               <RoomView
                 stage={stage}
@@ -2778,7 +2986,8 @@ export function Studio() {
                       </text>
                     </g>
                   ))}
-                {surfaces
+                {/* a copy: reverse() on the state array itself flipped the surface order on every render */}
+                {[...surfaces]
                   .reverse()
                   .filter((s) => s.visible)
                   .map((s) => (
