@@ -8,6 +8,46 @@ import type {
   Vec3,
 } from "./types";
 
+export const TRACK_KINDS: TimelineTrackKind[] = ["visual", "audio", "movement"];
+
+export const KIND_COLORS: Record<TimelineTrackKind, string> = {
+  visual: "#2dd4bf",
+  audio: "#eab308",
+  movement: "#a855f7",
+};
+
+export const TRACK_COLORS = [
+  { name: "Teal", value: "#2dd4bf" },
+  { name: "Sky", value: "#38bdf8" },
+  { name: "Blue", value: "#6366f1" },
+  { name: "Purple", value: "#a855f7" },
+  { name: "Pink", value: "#ec4899" },
+  { name: "Red", value: "#ef4444" },
+  { name: "Orange", value: "#f97316" },
+  { name: "Yellow", value: "#eab308" },
+  { name: "Green", value: "#22c55e" },
+  { name: "Grey", value: "#94a3b8" },
+];
+
+export const trackColor = (track: TimelineTrack | undefined, kind: TimelineTrackKind) =>
+  track?.color ?? KIND_COLORS[kind];
+
+/** Every show keeps at least one track of each kind, so there is always a place to add a clip. */
+export const withBaseTracks = (tracks: TimelineTrack[]): TimelineTrack[] => {
+  const missing = TRACK_KINDS.filter((kind) => !tracks.some((track) => track.kind === kind));
+  if (!missing.length) return tracks;
+  return [
+    ...tracks,
+    ...missing.map((kind) => ({
+      id: `track-${kind}-${Date.now().toString(36)}`,
+      name: `${kind[0]!.toUpperCase()}${kind.slice(1)} 1`,
+      kind,
+      muted: false,
+      solo: false,
+    })),
+  ];
+};
+
 export const timelineLength = (clips: TimelineClip[]) =>
   Math.max(30, ...clips.map((clip) => clip.start + clip.duration));
 

@@ -154,6 +154,8 @@ export type TimelineTrack = {
   kind: TimelineTrackKind;
   muted: boolean;
   solo: boolean;
+  /** hex color for this track and its clips; falls back to the color of its kind */
+  color?: string | undefined;
 };
 
 export type TimelineClip = {
