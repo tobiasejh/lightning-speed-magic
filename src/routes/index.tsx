@@ -91,6 +91,7 @@ import {
   positionOnPath,
   timelineLength,
   upgradePath,
+  withBaseTracks,
   withDuration,
 } from "@/lib/timeline";
 import {
@@ -752,7 +753,9 @@ export function Studio() {
       setScenes(project.scenes ?? []);
       setCues(project.timeline ?? []);
       setTimelineTracks(
-        project.timelineTracks?.length ? project.timelineTracks : defaultTimelineTracks(),
+        project.timelineTracks?.length
+          ? withBaseTracks(project.timelineTracks)
+          : defaultTimelineTracks(),
       );
       setTimelineClips(project.timelineClips ?? []);
       const paths = (project.soundPaths ?? []).map(upgradePath);
