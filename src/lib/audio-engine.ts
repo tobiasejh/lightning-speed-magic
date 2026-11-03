@@ -1,4 +1,5 @@
 import { LEVEL_SAMPLE_MS, bandLevels, silentLevels, type AudioLevels } from "./audio";
+import { insertLimiter } from "./limiter";
 import { ReverbBus } from "./reverb";
 import { shCoefficients } from "./sh";
 import { waveformOf } from "./waveform";
@@ -79,6 +80,9 @@ export class SpatialEngine {
     this.masterData = new Uint8Array(new ArrayBuffer(this.masterAnalyser.frequencyBinCount));
     this.master.connect(this.masterAnalyser);
     this.master.connect(this.ctx.destination);
+    // Several sources plus reverb can add up past full scale, and the sound card clips
+    // that hard, which is heard as crackle. The limiter takes over as soon as it loads.
+    void insertLimiter(this.ctx, this.master, this.ctx.destination);
     this.applyRoom(room, true);
   }
 
@@ -136,7 +140,9 @@ export class SpatialEngine {
   applyRoom(room: RoomConfig, force = false) {
     const prev = this.room;
     this.room = room;
-    this.master.gain.value = room.masterGain;
+    // a jump in gain is a click; glide to the new master volume instead
+    if (force) this.master.gain.value = room.masterGain;
+    else this.master.gain.setTargetAtTime(room.masterGain, this.ctx.currentTime, 0.02);
     if (prev.order !== room.order) this.reverb.setOrder(room.order);
     const key = JSON.stringify([
       room.outputMode,
