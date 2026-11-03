@@ -12,7 +12,9 @@ import {
   Mic,
   MicOff,
   Minimize2,
+  MoreVertical,
   Pause,
+  Pencil,
   Play,
   Plus,
   RotateCcw,
@@ -44,6 +46,12 @@ import { ShowPanel } from "@/components/timeline/ShowPanel";
 import { SoundPanel } from "@/components/audio/SoundPanel";
 import { SurfaceLayer } from "@/components/stage/SurfaceLayer";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -260,6 +268,7 @@ export function Studio() {
   const [surfaces, setSurfaces] = useState<Surface[]>(() => [newSurface(1, "visual:plasma")]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draggedSurfaceId, setDraggedSurfaceId] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState<{ id: string; draft: string } | null>(null);
   const [dropSurface, setDropSurface] = useState<{
     id: string;
     position: "before" | "after";
@@ -2196,12 +2205,37 @@ export function Studio() {
                   <span className="grid size-5 shrink-0 place-items-center rounded bg-muted text-[10px] font-semibold tabular-nums">
                     {idx + 1}
                   </span>
-                  <button className="min-w-0 flex-1 text-left" onClick={() => setSelectedId(s.id)}>
-                    <span className="block truncate text-sm font-medium">{s.name}</span>
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {sourceLabel(s.source)}
-                    </span>
-                  </button>
+                  {renaming?.id === s.id ? (
+                    <Input
+                      autoFocus
+                      value={renaming.draft}
+                      aria-label="Surface name"
+                      className="h-8 min-w-0 flex-1"
+                      onFocus={(e) => e.currentTarget.select()}
+                      onChange={(e) => setRenaming({ id: s.id, draft: e.target.value })}
+                      onBlur={(e) => {
+                        const name = e.currentTarget.value.trim();
+                        if (name && name !== s.name) patch(s.id, { name });
+                        setRenaming(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") e.currentTarget.value = s.name;
+                        if (e.key === "Enter" || e.key === "Escape") e.currentTarget.blur();
+                      }}
+                    />
+                  ) : (
+                    <button
+                      className="min-w-0 flex-1 text-left"
+                      title="Double-click to rename"
+                      onClick={() => setSelectedId(s.id)}
+                      onDoubleClick={() => setRenaming({ id: s.id, draft: s.name })}
+                    >
+                      <span className="block truncate text-sm font-medium">{s.name}</span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {sourceLabel(s.source)}
+                      </span>
+                    </button>
+                  )}
                   <button
                     aria-label={s.visible ? "Hide surface" : "Show surface"}
                     title={s.visible ? "Hide this surface" : "Show this surface"}
@@ -2218,14 +2252,29 @@ export function Studio() {
                   >
                     <Copy className="size-4" />
                   </button>
-                  <button
-                    aria-label="Delete surface"
-                    title={`Delete ${s.name}`}
-                    onClick={() => setSurfaces((prev) => prev.filter((x) => x.id !== s.id))}
-                    className="text-muted-foreground hover:text-destructive"
-                  >
-                    <Trash2 className="size-4" />
-                  </button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        aria-label="Surface options"
+                        title={`Rename or delete ${s.name}`}
+                        className="text-muted-foreground hover:text-foreground"
+                      >
+                        <MoreVertical className="size-4" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    {/* keep focus off the trigger on close so the rename field keeps it */}
+                    <DropdownMenuContent align="end" onCloseAutoFocus={(e) => e.preventDefault()}>
+                      <DropdownMenuItem onClick={() => setRenaming({ id: s.id, draft: s.name })}>
+                        <Pencil className="size-4" /> Rename
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive"
+                        onClick={() => setSurfaces((prev) => prev.filter((x) => x.id !== s.id))}
+                      >
+                        <Trash2 className="size-4" /> Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
                 {selected?.id === s.id && (
                   <div className="mt-3 space-y-2">
