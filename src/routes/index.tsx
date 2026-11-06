@@ -1938,12 +1938,7 @@ export function Studio() {
           </p>
         </header>
 
-        <CollapsibleSection
-          title="Project"
-          icon={FolderOpen}
-          contentClassName="space-y-2"
-          expandedForView={view !== "timeline"}
-        >
+        <CollapsibleSection title="Project" icon={FolderOpen} contentClassName="space-y-2">
           <ProjectsMenu
             name={projectName}
             savedAt={savedAt}
@@ -1977,7 +1972,11 @@ export function Studio() {
           />
         </CollapsibleSection>
 
-        <section className="sticky top-0 z-30 rounded-xl border border-border bg-card/95 px-3 py-2 shadow-sm backdrop-blur">
+        <section
+          className={`sticky top-0 z-30 rounded-xl border bg-card/95 px-3 py-2 shadow-sm backdrop-blur transition-colors ${
+            view === "timeline" ? "border-primary/50" : "border-border"
+          }`}
+        >
           <div className="flex items-center gap-1.5">
             <span className="ml-auto font-mono text-[10px] tabular-nums text-muted-foreground">
               {formatTime(Math.min(showTime, timelineLength(timelineClips)))} /{" "}
@@ -2022,7 +2021,7 @@ export function Studio() {
           title="Output"
           icon={MonitorPlay}
           contentClassName="space-y-3"
-          expandedForView={view === "stage"}
+          highlighted={view === "stage"}
         >
           <div className="flex gap-2">
             <Button
@@ -2096,7 +2095,7 @@ export function Studio() {
           title="Look"
           icon={Palette}
           contentClassName="space-y-3"
-          expandedForView={view === "stage"}
+          highlighted={view === "stage"}
         >
           <LabeledRow
             className="space-y-2"
@@ -2151,7 +2150,7 @@ export function Studio() {
           icon={Layers}
           count={surfaces.length}
           contentClassName="space-y-2"
-          expandedForView={view === "stage"}
+          highlighted={view === "stage"}
           action={
             <Button
               size="sm"
@@ -2519,7 +2518,8 @@ export function Studio() {
           icon={Spline}
           count={soundPaths.length}
           contentClassName="space-y-2"
-          expandedForView={view === "room" || view === "timeline"}
+          highlighted={view === "room" || view === "timeline"}
+          defaultOpen={false}
         >
           <LabeledRow label="Default point length" value={`${defaultPathLengthMs} ms`}>
             <Slider
@@ -2611,7 +2611,7 @@ export function Studio() {
           icon={ImageIcon}
           className="mb-4"
           contentClassName="space-y-2"
-          expandedForView={view !== "timeline"}
+          highlighted={view === "stage" || view === "room" || view === "editor"}
         >
           <Tabs value={sourceTab} onValueChange={setSourceTab}>
             <TabsList className="w-full">
@@ -2773,7 +2773,8 @@ export function Studio() {
                 count={soundPaths.length}
                 className="mt-4"
                 contentClassName="space-y-2"
-                expandedForView={view === "room" || view === "timeline"}
+                highlighted={view === "room" || view === "timeline"}
+                defaultOpen={false}
               >
                 <div className="flex items-center gap-2 text-xs">
                   <label htmlFor="default-path-length" className="flex-1 text-muted-foreground">
@@ -3316,7 +3317,8 @@ function CollapsibleSection({
   className,
   contentClassName,
   action,
-  expandedForView,
+  highlighted = false,
+  defaultOpen = true,
 }: {
   title: ReactNode;
   icon?: LucideIcon;
@@ -3326,19 +3328,21 @@ function CollapsibleSection({
   className?: string;
   contentClassName?: string;
   action?: ReactNode;
-  expandedForView?: boolean;
+  /** lights the section up while the current view uses it; never opens or closes it */
+  highlighted?: boolean;
+  /** only the first render: after that the section stays the way the user left it */
+  defaultOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(expandedForView ?? true);
-  const viewExpanded = expandedForView ?? true;
-
-  useEffect(() => {
-    setOpen(viewExpanded);
-  }, [viewExpanded]);
+  const [open, setOpen] = useState(defaultOpen);
 
   return (
     <section
-      className={`rounded-xl border bg-background/40 transition-colors ${
-        open ? "border-border" : "border-border/60 hover:border-border"
+      className={`rounded-xl border transition-colors ${
+        highlighted
+          ? "border-primary/50 bg-primary/5"
+          : open
+            ? "border-border bg-background/40"
+            : "border-border/60 bg-background/40 hover:border-border"
       } ${className ?? ""}`}
     >
       <div className="flex items-center gap-1 p-1.5">
@@ -3352,8 +3356,8 @@ function CollapsibleSection({
           {Icon && (
             <span
               className={`grid size-7 shrink-0 place-items-center rounded-md border transition-colors ${
-                open
-                  ? "border-primary/40 bg-primary/10 text-primary"
+                highlighted
+                  ? "border-primary/50 bg-primary/15 text-primary"
                   : "border-border/70 bg-card text-muted-foreground group-hover:text-foreground"
               }`}
             >
