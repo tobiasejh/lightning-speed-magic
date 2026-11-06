@@ -49,8 +49,10 @@ export function AutomationEditor({
   };
   /** Stops playback and puts the playhead back at the start of this clip. */
   const stop = () => {
-    if (playing) onPause();
+    // seek first: a seek right after a pause still sees the show as playing and would start
+    // the sounds again, while pausing after the seek silences them at the new spot
     onSeek(clip.start);
+    if (playing) onPause();
   };
 
   // on the body, so nothing from the page (like the menu resize handle) can stack above it
