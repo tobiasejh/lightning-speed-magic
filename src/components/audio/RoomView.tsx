@@ -169,7 +169,11 @@ export function RoomView(p: Props) {
       const target = e.currentTarget;
       const parent = rootRect(target);
       target.setPointerCapture(e.pointerId);
-      const move = (ev: PointerEvent) => cb(toPoint(ev.clientX, ev.clientY, parent));
+      // top-down view: only x/y move; callers keep the dragged item's own height (z)
+      const move = (ev: PointerEvent) => {
+        const { x, y } = toPoint(ev.clientX, ev.clientY, parent);
+        cb({ x, y });
+      };
       const up = () => {
         target.removeEventListener("pointermove", move);
         target.removeEventListener("pointerup", up);

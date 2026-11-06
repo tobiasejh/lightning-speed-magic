@@ -354,7 +354,9 @@ export function Studio() {
     showTimeRef.current = t;
     setShowTime(t);
   }, []);
-  const activeTimelineClips = useRef(new Set<string>());
+  // clips that were playing on the last applied frame, kept whole so a clip deleted
+  // mid-show can still be paused
+  const activeTimelineClips = useRef(new Map<string, TimelineClip>());
   const surfacesRef = useRef(surfaces);
   const [stage, setStage] = useState({ w: 0, h: 0 });
   const [stageTransform, setStageTransform] = useState({ scale: 1, x: 0, y: 0 });
@@ -644,14 +646,20 @@ export function Studio() {
   const reverbNeeded = timelineClips.some((clip) => (clip.reverbSend ?? 0) > 0);
   const reverbNeededRef = useRef(reverbNeeded);
   reverbNeededRef.current = reverbNeeded;
+  // the engine is created lazily, so it must read the room at that moment, not at first render
+  const roomRef = useRef(room);
+  roomRef.current = room;
 
   const engine = useCallback(() => {
     if (!engineRef.current) {
-      engineRef.current = new SpatialEngine(room, reverbRef.current, reverbNeededRef.current);
+      engineRef.current = new SpatialEngine(
+        roomRef.current,
+        reverbRef.current,
+        reverbNeededRef.current,
+      );
       setMaxChannels(engineRef.current.maxChannels);
     }
     return engineRef.current;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const levels = useCallback<AudioLevelProvider>((src) => {
@@ -756,7 +764,9 @@ export function Studio() {
       setProjectId(project.id);
       setProjectName(project.name);
       setGlobals({ ...defaultGlobals(), ...project.globals });
-      setRoom(upgradeRoom(project.room));
+      const nextRoom = upgradeRoom(project.room);
+      roomRef.current = nextRoom; // engine() below runs before the next render
+      setRoom(nextRoom);
       setReverb(
         upgradeReverb(project.reverb, (project.room as { reverb?: string } | undefined)?.reverb),
       );
@@ -1725,7 +1735,11 @@ export function Studio() {
           }
         }
       }
-      for (const clip of timelineClips) {
+      const currentIds = new Set(timelineClips.map((clip) => clip.id));
+      const removed = [...activeTimelineClips.current.values()].filter(
+        (clip) => !currentIds.has(clip.id),
+      );
+      for (const clip of [...timelineClips, ...removed]) {
         if (nextIds.has(clip.id)) continue;
         if (clip.kind === "audio" && clip.soundId && !activeSoundIds.has(clip.soundId)) {
           engineRef.current?.pauseSound(clip.soundId);
@@ -1736,7 +1750,7 @@ export function Studio() {
           if (element instanceof HTMLVideoElement) element.pause();
         }
       }
-      activeTimelineClips.current = nextIds;
+      activeTimelineClips.current = new Map(active.map((clip) => [clip.id, clip]));
       return clipsChanged;
     },
     [editorNeedsVideo, soundPaths, timelineClips, timelineTracks],
@@ -1786,6 +1800,8 @@ export function Studio() {
   const runShow = () => {
     if (!timelineClips.length) return;
     engine().resume();
+    // at (or past) the end, Play starts over instead of stopping again on the first frame
+    if (showTimeRef.current >= timelineLength(timelineClips)) setShowTimeNow(0);
     showStart.current = performance.now() - showTimeRef.current * 1000;
     setShowPlaying(true);
   };
@@ -1805,7 +1821,7 @@ export function Studio() {
     setShowPlaying(false);
     setShowTimeNow(0);
     setMovementPositions({});
-    activeTimelineClips.current.clear();
+    // no clearing first: applyTimelineAt needs the last active clips to pause deleted ones
     applyTimelineAt(0, false);
   };
 
@@ -1971,6 +1987,16 @@ export function Studio() {
             }}
           />
         </CollapsibleSection>
+
+        {/* outside the Project card, so a failed save shows in every view, open or closed */}
+        {saveError && (
+          <p
+            role="alert"
+            className="rounded-xl border border-destructive/60 bg-destructive/10 p-2.5 text-xs text-destructive"
+          >
+            {saveError}
+          </p>
+        )}
 
         <section
           className={`sticky top-0 z-30 rounded-xl border bg-card/95 px-3 py-2 shadow-sm backdrop-blur transition-colors ${
@@ -3117,14 +3143,6 @@ export function Studio() {
             {view === "timeline" && !fullscreen && (
               <div className="absolute inset-0 z-30 min-w-0 overflow-y-auto bg-background p-4 lg:p-6">
                 <div className="mx-auto w-full max-w-[96rem]">
-                  {saveError && (
-                    <p
-                      role="alert"
-                      className="mb-3 rounded border border-destructive/60 p-2 text-xs text-destructive"
-                    >
-                      {saveError}
-                    </p>
-                  )}
                   <ShowPanel
                     tracks={timelineTracks}
                     clips={timelineClips}
