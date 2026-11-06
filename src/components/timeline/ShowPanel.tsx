@@ -443,8 +443,10 @@ export function ShowPanel(p: Props) {
               {track.name}
             </span>
           )}
+          {/* Always empty, so picking the same file again adds another clip of it and no item
+              carries a check mark; the last pick is only shown as the placeholder text. */}
           <Select
-            value={chosen ?? ""}
+            value=""
             onValueChange={(id) => {
               setChosenSources((current) => ({ ...current, [track.id]: id }));
               addClip(track, id);
@@ -454,7 +456,12 @@ export function ShowPanel(p: Props) {
               className="h-7 min-w-32 flex-1 bg-background/60"
               title={items.find((item) => item.id === chosen)?.name}
             >
-              <SelectValue placeholder={items.length ? "Choose clip" : "No available clips"} />
+              <SelectValue
+                placeholder={
+                  items.find((item) => item.id === chosen)?.name ??
+                  (items.length ? "Choose clip" : "No available clips")
+                }
+              />
             </SelectTrigger>
             <SelectContent className="max-w-[min(32rem,calc(100vw-2rem))]">
               {items.map((item) => (
