@@ -1,4 +1,5 @@
 import { Pause, Play, Square, X } from "lucide-react";
+import { createPortal } from "react-dom";
 
 import { AutomationLane } from "@/components/timeline/AutomationLane";
 import { Button } from "@/components/ui/button";
@@ -52,7 +53,8 @@ export function AutomationEditor({
     onSeek(clip.start);
   };
 
-  return (
+  // on the body, so nothing from the page (like the menu resize handle) can stack above it
+  return createPortal(
     <div className="fixed inset-0 z-50 flex flex-col bg-background/98 backdrop-blur">
       <div className="flex items-center gap-2 border-b border-border px-4 py-2">
         <Button
@@ -75,8 +77,8 @@ export function AutomationEditor({
           <p className="truncate text-sm font-semibold">{path.name}</p>
           <p className="text-[11px] text-muted-foreground">
             {path.nodes.length} points · movement {pathDuration(path).toFixed(2)}s · clip{" "}
-            {clip.duration.toFixed(2)}s · click an empty spot to add a point, drag a point up/down
-            to move the sound, sideways to retime
+            {clip.duration.toFixed(2)}s · click an empty spot to add a point · right-click a point
+            to delete it · drag a point up/down to move the sound, sideways to retime
           </p>
         </div>
         <Button size="sm" variant="secondary" onClick={onClose}>
@@ -106,7 +108,7 @@ export function AutomationEditor({
                 width={width}
                 height={LANE_HEIGHT}
                 peaks={peaks}
-                addPoints
+                editPoints
                 onPatchPath={onPatchPath}
               />
             ))}
@@ -117,6 +119,7 @@ export function AutomationEditor({
           />
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

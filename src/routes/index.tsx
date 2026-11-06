@@ -2519,7 +2519,6 @@ export function Studio() {
           count={soundPaths.length}
           contentClassName="space-y-2"
           highlighted={view === "room" || view === "timeline"}
-          defaultOpen={false}
         >
           <LabeledRow label="Default point length" value={`${defaultPathLengthMs} ms`}>
             <Slider
@@ -2774,7 +2773,6 @@ export function Studio() {
                 className="mt-4"
                 contentClassName="space-y-2"
                 highlighted={view === "room" || view === "timeline"}
-                defaultOpen={false}
               >
                 <div className="flex items-center gap-2 text-xs">
                   <label htmlFor="default-path-length" className="flex-1 text-muted-foreground">
@@ -3318,7 +3316,6 @@ function CollapsibleSection({
   contentClassName,
   action,
   highlighted = false,
-  defaultOpen = true,
 }: {
   title: ReactNode;
   icon?: LucideIcon;
@@ -3330,10 +3327,9 @@ function CollapsibleSection({
   action?: ReactNode;
   /** lights the section up while the current view uses it; never opens or closes it */
   highlighted?: boolean;
-  /** only the first render: after that the section stays the way the user left it */
-  defaultOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
+  // every section starts closed and then stays the way the user left it
+  const [open, setOpen] = useState(false);
 
   return (
     <section

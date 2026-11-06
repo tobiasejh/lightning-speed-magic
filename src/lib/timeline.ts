@@ -268,6 +268,31 @@ export const insertPathPoint = (
   return node ? moveNode(split, node.id, { ...node.position, [axis]: value }) : split;
 };
 
+/**
+ * Deletes a point from a movement lane. A point in the middle joins its two lines into one,
+ * so the path keeps its length and stays one unbroken movement.
+ */
+export const removePathPoint = (path: SoundPath, nodeId: string): SoundPath => {
+  const segments = path.segments ?? [];
+  const into = segments.findIndex((segment) => segment.toId === nodeId);
+  const out = segments.findIndex((segment) => segment.fromId === nodeId);
+  const before = segments[into];
+  const after = segments[out];
+  if (!before || !after || out !== into + 1) return removeNode(path, nodeId);
+  const joined: PathSegment = {
+    id: uid("s"),
+    fromId: before.fromId,
+    toId: after.toId,
+    durationMs: before.durationMs + after.durationMs,
+    curve: 0,
+  };
+  return withDuration({
+    ...path,
+    nodes: path.nodes.filter((node) => node.id !== nodeId),
+    segments: [...segments.slice(0, into), joined, ...segments.slice(out + 1)],
+  });
+};
+
 export const connectNodes = (
   path: SoundPath,
   fromId: string,

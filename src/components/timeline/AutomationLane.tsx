@@ -1,4 +1,4 @@
-import { type PointerEvent as ReactPointerEvent } from "react";
+import { useState, type PointerEvent as ReactPointerEvent } from "react";
 
 import {
   axisOutline,
@@ -6,6 +6,7 @@ import {
   moveNode,
   pathChain,
   patchSegment,
+  removePathPoint,
   withDuration,
 } from "@/lib/timeline";
 import type { SoundPath } from "@/lib/types";
@@ -19,8 +20,8 @@ type Props = {
   height?: number;
   /** loudness overview of the linked sound, drawn behind the line */
   peaks?: number[] | undefined;
-  /** clicking an empty spot on the lane adds a point there */
-  addPoints?: boolean;
+  /** clicking an empty spot adds a point there, right-clicking a point deletes it */
+  editPoints?: boolean;
   onPatchPath: (path: SoundPath) => void;
 };
 
@@ -31,9 +32,11 @@ export function AutomationLane({
   width,
   height = 44,
   peaks,
-  addPoints = false,
+  editPoints = false,
   onPatchPath,
 }: Props) {
+  // where a click would add a point, while the pointer is over an empty spot
+  const [ghost, setGhost] = useState<{ x: number; y: number } | null>(null);
   const length = Math.max(0.001, span);
   const toX = (time: number) => (Math.max(0, Math.min(length, time)) / length) * width;
   const toY = (value: number) => ((value + 1) / 2) * height;
@@ -42,8 +45,10 @@ export function AutomationLane({
 
   const dragHandle =
     (index: number, nodeId: string) => (event: ReactPointerEvent<SVGCircleElement>) => {
-      event.preventDefault();
       event.stopPropagation();
+      // a right-click deletes the point instead, see onContextMenu
+      if (event.button !== 0) return;
+      event.preventDefault();
       const target = event.currentTarget;
       const svg = target.ownerSVGElement ?? target;
       const rect = svg.getBoundingClientRect();
@@ -98,6 +103,16 @@ export function AutomationLane({
     const rect = event.currentTarget.getBoundingClientRect();
     const time = ((event.clientX - rect.left) / width) * length;
     onPatchPath(insertPathPoint(path, axis, time, fromY(event.clientY - rect.top)));
+    setGhost(null);
+  };
+  /** Shows where a click would add a point, unless the pointer is over an existing one. */
+  const trackGhost = (event: ReactPointerEvent<SVGSVGElement>) => {
+    if (event.buttons || event.target instanceof SVGCircleElement) {
+      setGhost(null);
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    setGhost({ x: event.clientX - rect.left, y: event.clientY - rect.top });
   };
 
   return (
@@ -108,9 +123,11 @@ export function AutomationLane({
       <svg
         width={width}
         height={height}
-        className={`rounded border border-border bg-muted/20 ${addPoints ? "cursor-crosshair" : ""}`}
+        className={`rounded border border-border bg-muted/20 ${editPoints ? "cursor-crosshair" : ""}`}
         style={{ touchAction: "none" }}
-        onPointerDown={addPoints ? addPoint : undefined}
+        onPointerDown={editPoints ? addPoint : undefined}
+        onPointerMove={editPoints ? trackGhost : undefined}
+        onPointerLeave={editPoints ? () => setGhost(null) : undefined}
       >
         {peaks?.length
           ? peaks.map((peak, index) => {
@@ -146,9 +163,28 @@ export function AutomationLane({
               r={height > 90 ? 8 : 5}
               className="cursor-grab fill-foreground"
               onPointerDown={dragHandle(index, entry.nodeId)}
-            />
+              onContextMenu={
+                editPoints
+                  ? (event) => {
+                      event.preventDefault();
+                      onPatchPath(removePathPoint(path, entry.nodeId));
+                    }
+                  : undefined
+              }
+            >
+              {editPoints && <title>Drag to move · right-click to delete</title>}
+            </circle>
           );
         })}
+        {ghost && (
+          <circle
+            cx={ghost.x}
+            cy={ghost.y}
+            r={height > 90 ? 8 : 5}
+            className="pointer-events-none fill-foreground/30 stroke-foreground/60"
+            strokeDasharray="3 2"
+          />
+        )}
       </svg>
     </div>
   );
