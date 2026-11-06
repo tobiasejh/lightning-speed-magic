@@ -1,6 +1,13 @@
 import { type PointerEvent as ReactPointerEvent } from "react";
 
-import { axisOutline, moveNode, pathChain, patchSegment, withDuration } from "@/lib/timeline";
+import {
+  axisOutline,
+  insertPathPoint,
+  moveNode,
+  pathChain,
+  patchSegment,
+  withDuration,
+} from "@/lib/timeline";
 import type { SoundPath } from "@/lib/types";
 
 type Props = {
@@ -12,6 +19,8 @@ type Props = {
   height?: number;
   /** loudness overview of the linked sound, drawn behind the line */
   peaks?: number[] | undefined;
+  /** clicking an empty spot on the lane adds a point there */
+  addPoints?: boolean;
   onPatchPath: (path: SoundPath) => void;
 };
 
@@ -22,6 +31,7 @@ export function AutomationLane({
   width,
   height = 44,
   peaks,
+  addPoints = false,
   onPatchPath,
 }: Props) {
   const length = Math.max(0.001, span);
@@ -82,6 +92,14 @@ export function AutomationLane({
       target.addEventListener("pointerup", up);
     };
 
+  // points stop their own pointerdown, so this only fires on an empty spot of the lane
+  const addPoint = (event: ReactPointerEvent<SVGSVGElement>) => {
+    if (event.button !== 0) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const time = ((event.clientX - rect.left) / width) * length;
+    onPatchPath(insertPathPoint(path, axis, time, fromY(event.clientY - rect.top)));
+  };
+
   return (
     <div className="space-y-1">
       <span className="text-[10px] uppercase text-muted-foreground">
@@ -90,8 +108,9 @@ export function AutomationLane({
       <svg
         width={width}
         height={height}
-        className="rounded border border-border bg-muted/20"
+        className={`rounded border border-border bg-muted/20 ${addPoints ? "cursor-crosshair" : ""}`}
         style={{ touchAction: "none" }}
+        onPointerDown={addPoints ? addPoint : undefined}
       >
         {peaks?.length
           ? peaks.map((peak, index) => {

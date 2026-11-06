@@ -236,6 +236,38 @@ export const addPathNode = (
   return withDuration({ ...path, nodes: [...path.nodes, node], segments });
 };
 
+/**
+ * Adds a point to a movement lane at `time` seconds, with `value` on that axis. Inside the
+ * path it splits the line it lands on, past the end it extends the path.
+ */
+export const insertPathPoint = (
+  path: SoundPath,
+  axis: "x" | "y",
+  time: number,
+  value: number,
+): SoundPath => {
+  const chain = pathChain(path);
+  const last = chain[chain.length - 1];
+  const lastNode = last ? nodeById(path, last.nodeId) : null;
+  if (!last || !lastNode) return addPathNode(path, { x: 0, y: 0, z: 0, [axis]: value }, false);
+  if (time >= last.time)
+    return addPathNode(
+      path,
+      { ...lastNode.position, [axis]: value },
+      true,
+      Math.max(0, Math.round((time - last.time) * 1000)),
+    );
+  const index = chain.findIndex((_, i) => time < (chain[i + 1]?.time ?? Infinity));
+  const segment = path.segments[index];
+  const from = chain[index];
+  const to = chain[index + 1];
+  if (!segment || !from || !to || to.time <= from.time) return path;
+  const split = splitSegment(path, segment.id, (time - from.time) / (to.time - from.time));
+  // splitSegment appends the new point last
+  const node = split !== path ? split.nodes[split.nodes.length - 1] : undefined;
+  return node ? moveNode(split, node.id, { ...node.position, [axis]: value }) : split;
+};
+
 export const connectNodes = (
   path: SoundPath,
   fromId: string,

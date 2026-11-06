@@ -8,11 +8,16 @@ import {
   FlipHorizontal2,
   GripVertical,
   FlipVertical2,
+  FolderOpen,
+  Image as ImageIcon,
+  Layers,
   Maximize2,
   Mic,
   MicOff,
   Minimize2,
+  MonitorPlay,
   MoreVertical,
+  Palette,
   Pause,
   Pencil,
   Play,
@@ -20,8 +25,10 @@ import {
   RotateCcw,
   RotateCw,
   Scissors,
+  Spline,
   Trash2,
   Upload,
+  type LucideIcon,
 } from "lucide-react";
 import {
   useCallback,
@@ -117,6 +124,7 @@ import {
   splitOutputsEvenly,
   upgradeOutput,
   upgradeRoom,
+  BLANK_SOURCE,
   mediaElements,
   mediaMeta,
   type Globals,
@@ -588,13 +596,19 @@ export function Studio() {
     return next;
   }, [showTime, timelineClips, timelineTracks]);
 
+  // Once the show is built in the timeline (or the timeline is being worked on), the timeline
+  // decides what every surface shows: a surface with no clip on it right now is black.
+  const timelineDrivesSurfaces =
+    view === "timeline" || timelineClips.some((clip) => clip.kind === "visual");
   const displaySurfaces = useMemo(
     () =>
       surfaces.map((surface) => {
-        const source = timelineSurfaceSources.get(surface.id);
+        const source =
+          timelineSurfaceSources.get(surface.id) ??
+          (timelineDrivesSurfaces ? BLANK_SOURCE : undefined);
         return source ? { ...surface, source } : surface;
       }),
-    [surfaces, timelineSurfaceSources],
+    [surfaces, timelineSurfaceSources, timelineDrivesSurfaces],
   );
 
   const surfaceVideoOwners = useMemo(() => videoOwners(displaySurfaces), [displaySurfaces]);
@@ -1908,23 +1922,25 @@ export function Studio() {
       style={{ "--menu-width": `${menuWidth}px` } as CSSProperties}
     >
       <aside
-        className={`flex w-full min-w-0 shrink-0 flex-col gap-5 overflow-x-hidden overflow-y-auto border-b border-border bg-card/60 p-4 lg:h-full lg:w-(--menu-width) lg:border-b-0 lg:border-r ${
+        className={`flex w-full min-w-0 shrink-0 flex-col gap-2.5 overflow-x-hidden overflow-y-auto border-b border-border bg-card/60 p-3 lg:h-full lg:w-(--menu-width) lg:border-b-0 lg:border-r ${
           fullscreen ? "hidden" : ""
         }`}
       >
-        <header>
+        <header className="px-1.5 pb-2 pt-1">
           <h1 className="flex items-center gap-2 text-lg font-semibold tracking-tight">
             <img src={innopixel_logo} alt="Prism logo" className="h-8 w-auto" />
+            <span className="ml-auto rounded-md border border-border/70 bg-background/40 px-1.5 py-0.5 font-mono text-[10px] font-normal text-muted-foreground">
+              Version {packageJson.version}
+            </span>
           </h1>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className="mt-2 text-xs text-muted-foreground">
             Projection mapping and spatial sound in one application. Made by Innopixel.
           </p>
-          <p className="mt-1 text-xs text-muted-foreground">Version {packageJson.version}</p>
         </header>
 
         <CollapsibleSection
           title="Project"
-          className="space-y-2"
+          icon={FolderOpen}
           contentClassName="space-y-2"
           expandedForView={view !== "timeline"}
         >
@@ -1961,7 +1977,7 @@ export function Studio() {
           />
         </CollapsibleSection>
 
-        <section className="sticky top-0 z-30 -mx-4 -mt-5 border-y border-border bg-card/95 px-4 py-2 backdrop-blur">
+        <section className="sticky top-0 z-30 rounded-xl border border-border bg-card/95 px-3 py-2 shadow-sm backdrop-blur">
           <div className="flex items-center gap-1.5">
             <span className="ml-auto font-mono text-[10px] tabular-nums text-muted-foreground">
               {formatTime(Math.min(showTime, timelineLength(timelineClips)))} /{" "}
@@ -2004,7 +2020,7 @@ export function Studio() {
         {/* Output */}
         <CollapsibleSection
           title="Output"
-          className="space-y-3"
+          icon={MonitorPlay}
           contentClassName="space-y-3"
           expandedForView={view === "stage"}
         >
@@ -2078,7 +2094,7 @@ export function Studio() {
         {/* Look */}
         <CollapsibleSection
           title="Look"
-          className="space-y-3"
+          icon={Palette}
           contentClassName="space-y-3"
           expandedForView={view === "stage"}
         >
@@ -2132,7 +2148,8 @@ export function Studio() {
         {/* Surfaces */}
         <CollapsibleSection
           title="Surfaces"
-          className="space-y-2"
+          icon={Layers}
+          count={surfaces.length}
           contentClassName="space-y-2"
           expandedForView={view === "stage"}
           action={
@@ -2499,7 +2516,8 @@ export function Studio() {
         {/* Movement paths */}
         <CollapsibleSection
           title="Movement paths"
-          className="space-y-2"
+          icon={Spline}
+          count={soundPaths.length}
           contentClassName="space-y-2"
           expandedForView={view === "room" || view === "timeline"}
         >
@@ -2590,7 +2608,8 @@ export function Studio() {
         {/* Sources */}
         <CollapsibleSection
           title={`Source for ${selected?.name ?? "surface"}`}
-          className="space-y-2 pb-4"
+          icon={ImageIcon}
+          className="mb-4"
           contentClassName="space-y-2"
           expandedForView={view !== "timeline"}
         >
@@ -2750,8 +2769,10 @@ export function Studio() {
               />
               <CollapsibleSection
                 title="Movement paths"
-                className="mt-4 border-t border-border pt-3"
-                contentClassName="mt-2 space-y-2"
+                icon={Spline}
+                count={soundPaths.length}
+                className="mt-4"
+                contentClassName="space-y-2"
                 expandedForView={view === "room" || view === "timeline"}
               >
                 <div className="flex items-center gap-2 text-xs">
@@ -3286,8 +3307,11 @@ export function Studio() {
   );
 }
 
+/** A framed menu card: an icon row that opens and closes the settings below it. */
 function CollapsibleSection({
   title,
+  icon: Icon,
+  count,
   children,
   className,
   contentClassName,
@@ -3295,6 +3319,9 @@ function CollapsibleSection({
   expandedForView,
 }: {
   title: ReactNode;
+  icon?: LucideIcon;
+  /** how many items the section holds, shown as a badge */
+  count?: number;
   children: ReactNode;
   className?: string;
   contentClassName?: string;
@@ -3309,23 +3336,43 @@ function CollapsibleSection({
   }, [viewExpanded]);
 
   return (
-    <section className={className}>
-      <div className="flex items-center justify-between gap-2">
+    <section
+      className={`rounded-xl border bg-background/40 transition-colors ${
+        open ? "border-border" : "border-border/60 hover:border-border"
+      } ${className ?? ""}`}
+    >
+      <div className="flex items-center gap-1 p-1.5">
         <button
           type="button"
           aria-expanded={open}
           title={`${open ? "Collapse" : "Expand"} ${typeof title === "string" ? title : "menu section"}`}
           onClick={() => setOpen((current) => !current)}
-          className="flex min-w-0 flex-1 items-center gap-1.5 rounded text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          className="group flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-1.5 py-1 text-left text-sm font-medium text-foreground/90 transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
+          {Icon && (
+            <span
+              className={`grid size-7 shrink-0 place-items-center rounded-md border transition-colors ${
+                open
+                  ? "border-primary/40 bg-primary/10 text-primary"
+                  : "border-border/70 bg-card text-muted-foreground group-hover:text-foreground"
+              }`}
+            >
+              <Icon className="size-4" />
+            </span>
+          )}
+          <span className="min-w-0 flex-1 truncate">{title}</span>
+          {count !== undefined && (
+            <span className="shrink-0 rounded-md border border-border/70 bg-card px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-muted-foreground">
+              {count}
+            </span>
+          )}
           <ChevronDown
-            className={`size-3.5 shrink-0 transition-transform ${open ? "" : "-rotate-90"}`}
+            className={`size-4 shrink-0 text-muted-foreground transition-transform ${open ? "" : "-rotate-90"}`}
           />
-          <span className="truncate">{title}</span>
         </button>
         {action}
       </div>
-      <div className={contentClassName} hidden={!open}>
+      <div className={`border-t border-border/60 p-3 ${contentClassName ?? ""}`} hidden={!open}>
         {children}
       </div>
     </section>
