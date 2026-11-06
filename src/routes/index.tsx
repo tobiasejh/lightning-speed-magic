@@ -8,11 +8,16 @@ import {
   FlipHorizontal2,
   GripVertical,
   FlipVertical2,
+  FolderOpen,
+  Image as ImageIcon,
+  Layers,
   Maximize2,
   Mic,
   MicOff,
   Minimize2,
+  MonitorPlay,
   MoreVertical,
+  Palette,
   Pause,
   Pencil,
   Play,
@@ -20,8 +25,10 @@ import {
   RotateCcw,
   RotateCw,
   Scissors,
+  Spline,
   Trash2,
   Upload,
+  type LucideIcon,
 } from "lucide-react";
 import {
   useCallback,
@@ -117,6 +124,7 @@ import {
   splitOutputsEvenly,
   upgradeOutput,
   upgradeRoom,
+  BLANK_SOURCE,
   mediaElements,
   mediaMeta,
   type Globals,
@@ -346,7 +354,9 @@ export function Studio() {
     showTimeRef.current = t;
     setShowTime(t);
   }, []);
-  const activeTimelineClips = useRef(new Set<string>());
+  // clips that were playing on the last applied frame, kept whole so a clip deleted
+  // mid-show can still be paused
+  const activeTimelineClips = useRef(new Map<string, TimelineClip>());
   const surfacesRef = useRef(surfaces);
   const [stage, setStage] = useState({ w: 0, h: 0 });
   const [stageTransform, setStageTransform] = useState({ scale: 1, x: 0, y: 0 });
@@ -588,13 +598,19 @@ export function Studio() {
     return next;
   }, [showTime, timelineClips, timelineTracks]);
 
+  // Once the show is built in the timeline (or the timeline is being worked on), the timeline
+  // decides what every surface shows: a surface with no clip on it right now is black.
+  const timelineDrivesSurfaces =
+    view === "timeline" || timelineClips.some((clip) => clip.kind === "visual");
   const displaySurfaces = useMemo(
     () =>
       surfaces.map((surface) => {
-        const source = timelineSurfaceSources.get(surface.id);
+        const source =
+          timelineSurfaceSources.get(surface.id) ??
+          (timelineDrivesSurfaces ? BLANK_SOURCE : undefined);
         return source ? { ...surface, source } : surface;
       }),
-    [surfaces, timelineSurfaceSources],
+    [surfaces, timelineSurfaceSources, timelineDrivesSurfaces],
   );
 
   const surfaceVideoOwners = useMemo(() => videoOwners(displaySurfaces), [displaySurfaces]);
@@ -630,14 +646,20 @@ export function Studio() {
   const reverbNeeded = timelineClips.some((clip) => (clip.reverbSend ?? 0) > 0);
   const reverbNeededRef = useRef(reverbNeeded);
   reverbNeededRef.current = reverbNeeded;
+  // the engine is created lazily, so it must read the room at that moment, not at first render
+  const roomRef = useRef(room);
+  roomRef.current = room;
 
   const engine = useCallback(() => {
     if (!engineRef.current) {
-      engineRef.current = new SpatialEngine(room, reverbRef.current, reverbNeededRef.current);
+      engineRef.current = new SpatialEngine(
+        roomRef.current,
+        reverbRef.current,
+        reverbNeededRef.current,
+      );
       setMaxChannels(engineRef.current.maxChannels);
     }
     return engineRef.current;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const levels = useCallback<AudioLevelProvider>((src) => {
@@ -742,7 +764,9 @@ export function Studio() {
       setProjectId(project.id);
       setProjectName(project.name);
       setGlobals({ ...defaultGlobals(), ...project.globals });
-      setRoom(upgradeRoom(project.room));
+      const nextRoom = upgradeRoom(project.room);
+      roomRef.current = nextRoom; // engine() below runs before the next render
+      setRoom(nextRoom);
       setReverb(
         upgradeReverb(project.reverb, (project.room as { reverb?: string } | undefined)?.reverb),
       );
@@ -1711,7 +1735,11 @@ export function Studio() {
           }
         }
       }
-      for (const clip of timelineClips) {
+      const currentIds = new Set(timelineClips.map((clip) => clip.id));
+      const removed = [...activeTimelineClips.current.values()].filter(
+        (clip) => !currentIds.has(clip.id),
+      );
+      for (const clip of [...timelineClips, ...removed]) {
         if (nextIds.has(clip.id)) continue;
         if (clip.kind === "audio" && clip.soundId && !activeSoundIds.has(clip.soundId)) {
           engineRef.current?.pauseSound(clip.soundId);
@@ -1722,7 +1750,7 @@ export function Studio() {
           if (element instanceof HTMLVideoElement) element.pause();
         }
       }
-      activeTimelineClips.current = nextIds;
+      activeTimelineClips.current = new Map(active.map((clip) => [clip.id, clip]));
       return clipsChanged;
     },
     [editorNeedsVideo, soundPaths, timelineClips, timelineTracks],
@@ -1772,6 +1800,8 @@ export function Studio() {
   const runShow = () => {
     if (!timelineClips.length) return;
     engine().resume();
+    // at (or past) the end, Play starts over instead of stopping again on the first frame
+    if (showTimeRef.current >= timelineLength(timelineClips)) setShowTimeNow(0);
     showStart.current = performance.now() - showTimeRef.current * 1000;
     setShowPlaying(true);
   };
@@ -1791,7 +1821,7 @@ export function Studio() {
     setShowPlaying(false);
     setShowTimeNow(0);
     setMovementPositions({});
-    activeTimelineClips.current.clear();
+    // no clearing first: applyTimelineAt needs the last active clips to pause deleted ones
     applyTimelineAt(0, false);
   };
 
@@ -1908,26 +1938,23 @@ export function Studio() {
       style={{ "--menu-width": `${menuWidth}px` } as CSSProperties}
     >
       <aside
-        className={`flex w-full min-w-0 shrink-0 flex-col gap-5 overflow-x-hidden overflow-y-auto border-b border-border bg-card/60 p-4 lg:h-full lg:w-(--menu-width) lg:border-b-0 lg:border-r ${
+        className={`flex w-full min-w-0 shrink-0 flex-col gap-2.5 overflow-x-hidden overflow-y-auto border-b border-border bg-card/60 p-3 lg:h-full lg:w-(--menu-width) lg:border-b-0 lg:border-r ${
           fullscreen ? "hidden" : ""
         }`}
       >
-        <header>
+        <header className="px-1.5 pb-2 pt-1">
           <h1 className="flex items-center gap-2 text-lg font-semibold tracking-tight">
             <img src={innopixel_logo} alt="Prism logo" className="h-8 w-auto" />
+            <span className="ml-auto rounded-md border border-border/70 bg-background/40 px-1.5 py-0.5 font-mono text-[10px] font-normal text-muted-foreground">
+              Version {packageJson.version}
+            </span>
           </h1>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className="mt-2 text-xs text-muted-foreground">
             Projection mapping and spatial sound in one application. Made by Innopixel.
           </p>
-          <p className="mt-1 text-xs text-muted-foreground">Version {packageJson.version}</p>
         </header>
 
-        <CollapsibleSection
-          title="Project"
-          className="space-y-2"
-          contentClassName="space-y-2"
-          expandedForView={view !== "timeline"}
-        >
+        <CollapsibleSection title="Project" icon={FolderOpen} contentClassName="space-y-2">
           <ProjectsMenu
             name={projectName}
             savedAt={savedAt}
@@ -1961,7 +1988,21 @@ export function Studio() {
           />
         </CollapsibleSection>
 
-        <section className="sticky top-0 z-30 -mx-4 -mt-5 border-y border-border bg-card/95 px-4 py-2 backdrop-blur">
+        {/* outside the Project card, so a failed save shows in every view, open or closed */}
+        {saveError && (
+          <p
+            role="alert"
+            className="rounded-xl border border-destructive/60 bg-destructive/10 p-2.5 text-xs text-destructive"
+          >
+            {saveError}
+          </p>
+        )}
+
+        <section
+          className={`sticky top-0 z-30 rounded-xl border bg-card/95 px-3 py-2 shadow-sm backdrop-blur transition-colors ${
+            view === "timeline" ? "border-primary/50" : "border-border"
+          }`}
+        >
           <div className="flex items-center gap-1.5">
             <span className="ml-auto font-mono text-[10px] tabular-nums text-muted-foreground">
               {formatTime(Math.min(showTime, timelineLength(timelineClips)))} /{" "}
@@ -2004,9 +2045,9 @@ export function Studio() {
         {/* Output */}
         <CollapsibleSection
           title="Output"
-          className="space-y-3"
+          icon={MonitorPlay}
           contentClassName="space-y-3"
-          expandedForView={view === "stage"}
+          highlighted={view === "stage"}
         >
           <div className="flex gap-2">
             <Button
@@ -2078,9 +2119,9 @@ export function Studio() {
         {/* Look */}
         <CollapsibleSection
           title="Look"
-          className="space-y-3"
+          icon={Palette}
           contentClassName="space-y-3"
-          expandedForView={view === "stage"}
+          highlighted={view === "stage"}
         >
           <LabeledRow
             className="space-y-2"
@@ -2132,9 +2173,10 @@ export function Studio() {
         {/* Surfaces */}
         <CollapsibleSection
           title="Surfaces"
-          className="space-y-2"
+          icon={Layers}
+          count={surfaces.length}
           contentClassName="space-y-2"
-          expandedForView={view === "stage"}
+          highlighted={view === "stage"}
           action={
             <Button
               size="sm"
@@ -2499,9 +2541,10 @@ export function Studio() {
         {/* Movement paths */}
         <CollapsibleSection
           title="Movement paths"
-          className="space-y-2"
+          icon={Spline}
+          count={soundPaths.length}
           contentClassName="space-y-2"
-          expandedForView={view === "room" || view === "timeline"}
+          highlighted={view === "room" || view === "timeline"}
         >
           <LabeledRow label="Default point length" value={`${defaultPathLengthMs} ms`}>
             <Slider
@@ -2590,9 +2633,10 @@ export function Studio() {
         {/* Sources */}
         <CollapsibleSection
           title={`Source for ${selected?.name ?? "surface"}`}
-          className="space-y-2 pb-4"
+          icon={ImageIcon}
+          className="mb-4"
           contentClassName="space-y-2"
-          expandedForView={view !== "timeline"}
+          highlighted={view === "stage" || view === "room" || view === "editor"}
         >
           <Tabs value={sourceTab} onValueChange={setSourceTab}>
             <TabsList className="w-full">
@@ -2750,9 +2794,11 @@ export function Studio() {
               />
               <CollapsibleSection
                 title="Movement paths"
-                className="mt-4 border-t border-border pt-3"
-                contentClassName="mt-2 space-y-2"
-                expandedForView={view === "room" || view === "timeline"}
+                icon={Spline}
+                count={soundPaths.length}
+                className="mt-4"
+                contentClassName="space-y-2"
+                highlighted={view === "room" || view === "timeline"}
               >
                 <div className="flex items-center gap-2 text-xs">
                   <label htmlFor="default-path-length" className="flex-1 text-muted-foreground">
@@ -3097,14 +3143,6 @@ export function Studio() {
             {view === "timeline" && !fullscreen && (
               <div className="absolute inset-0 z-30 min-w-0 overflow-y-auto bg-background p-4 lg:p-6">
                 <div className="mx-auto w-full max-w-[96rem]">
-                  {saveError && (
-                    <p
-                      role="alert"
-                      className="mb-3 rounded border border-destructive/60 p-2 text-xs text-destructive"
-                    >
-                      {saveError}
-                    </p>
-                  )}
                   <ShowPanel
                     tracks={timelineTracks}
                     clips={timelineClips}
@@ -3286,46 +3324,73 @@ export function Studio() {
   );
 }
 
+/** A framed menu card: an icon row that opens and closes the settings below it. */
 function CollapsibleSection({
   title,
+  icon: Icon,
+  count,
   children,
   className,
   contentClassName,
   action,
-  expandedForView,
+  highlighted = false,
 }: {
   title: ReactNode;
+  icon?: LucideIcon;
+  /** how many items the section holds, shown as a badge */
+  count?: number;
   children: ReactNode;
   className?: string;
   contentClassName?: string;
   action?: ReactNode;
-  expandedForView?: boolean;
+  /** lights the section up while the current view uses it; never opens or closes it */
+  highlighted?: boolean;
 }) {
-  const [open, setOpen] = useState(expandedForView ?? true);
-  const viewExpanded = expandedForView ?? true;
-
-  useEffect(() => {
-    setOpen(viewExpanded);
-  }, [viewExpanded]);
+  // every section starts closed and then stays the way the user left it
+  const [open, setOpen] = useState(false);
 
   return (
-    <section className={className}>
-      <div className="flex items-center justify-between gap-2">
+    <section
+      className={`rounded-xl border transition-colors ${
+        highlighted
+          ? "border-primary/50 bg-primary/5"
+          : open
+            ? "border-border bg-background/40"
+            : "border-border/60 bg-background/40 hover:border-border"
+      } ${className ?? ""}`}
+    >
+      <div className="flex items-center gap-1 p-1.5">
         <button
           type="button"
           aria-expanded={open}
           title={`${open ? "Collapse" : "Expand"} ${typeof title === "string" ? title : "menu section"}`}
           onClick={() => setOpen((current) => !current)}
-          className="flex min-w-0 flex-1 items-center gap-1.5 rounded text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          className="group flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-1.5 py-1 text-left text-sm font-medium text-foreground/90 transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
+          {Icon && (
+            <span
+              className={`grid size-7 shrink-0 place-items-center rounded-md border transition-colors ${
+                highlighted
+                  ? "border-primary/50 bg-primary/15 text-primary"
+                  : "border-border/70 bg-card text-muted-foreground group-hover:text-foreground"
+              }`}
+            >
+              <Icon className="size-4" />
+            </span>
+          )}
+          <span className="min-w-0 flex-1 truncate">{title}</span>
+          {count !== undefined && (
+            <span className="shrink-0 rounded-md border border-border/70 bg-card px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-muted-foreground">
+              {count}
+            </span>
+          )}
           <ChevronDown
-            className={`size-3.5 shrink-0 transition-transform ${open ? "" : "-rotate-90"}`}
+            className={`size-4 shrink-0 text-muted-foreground transition-transform ${open ? "" : "-rotate-90"}`}
           />
-          <span className="truncate">{title}</span>
         </button>
         {action}
       </div>
-      <div className={contentClassName} hidden={!open}>
+      <div className={`border-t border-border/60 p-3 ${contentClassName ?? ""}`} hidden={!open}>
         {children}
       </div>
     </section>

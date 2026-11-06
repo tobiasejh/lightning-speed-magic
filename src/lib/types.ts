@@ -30,7 +30,7 @@ export type FitMode = "cover" | "stretch" | "fill";
 export type Surface = {
   id: string;
   name: string;
-  /** "visual:<id>" or "media:<id>" */
+  /** "visual:<id>", "media:<id>" or BLANK_SOURCE */
   source: string;
   corners: Pt[];
   opacity: number;
@@ -330,6 +330,9 @@ export type Project = {
   selectedClipId?: string | null;
   activePathId?: string | null;
 };
+
+/** A surface source that paints plain black, for surfaces the timeline has nothing on. */
+export const BLANK_SOURCE = "blank";
 
 /** Live media elements, kept outside React state. */
 export const mediaElements = new Map<string, HTMLImageElement | HTMLVideoElement>();

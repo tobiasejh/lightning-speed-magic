@@ -224,6 +224,10 @@ export function ShowPanel(p: Props) {
         (media.trimStart ?? 0)
       : 0;
     const duration = Math.max(0.5, path?.duration ?? sound?.duration ?? mediaLength);
+    // a new visual goes on the same surface as the last clip on this track
+    const previous = p.clips
+      .filter((item) => item.trackId === track.id && item.surfaceId)
+      .sort((a, b) => b.start + b.duration - (a.start + a.duration))[0];
     const clip: TimelineClip = {
       id: `clip${Date.now()}`,
       trackId: track.id,
@@ -235,10 +239,31 @@ export function ShowPanel(p: Props) {
       mediaId: media?.id,
       soundId: sound?.id ?? path?.soundId,
       pathId: path?.id,
-      surfaceId: track.kind === "visual" ? p.surfaces[0]?.id : undefined,
+      surfaceId: track.kind === "visual" ? (previous?.surfaceId ?? p.surfaces[0]?.id) : undefined,
     };
     p.onClips([...p.clips, clip]);
     p.onSelectClip(clip.id);
+  };
+  /**
+   * Copies a clip with everything on it, surface included. The copy follows right after the
+   * original, or goes to the end of the track when that spot is taken.
+   */
+  const duplicateClip = (clip: TimelineClip) => {
+    const onTrack = p.clips.filter((item) => item.trackId === clip.trackId);
+    const after = clip.start + clip.duration;
+    const taken = onTrack.some(
+      (item) =>
+        item.id !== clip.id &&
+        item.start < after + clip.duration &&
+        item.start + item.duration > after,
+    );
+    const copy: TimelineClip = {
+      ...clip,
+      id: `clip${Date.now()}`,
+      start: taken ? Math.max(...onTrack.map((item) => item.start + item.duration)) : after,
+    };
+    p.onClips([...p.clips, copy]);
+    p.onSelectClip(copy.id);
   };
   const patchTrack = (id: string, next: Partial<TimelineTrack>) =>
     p.onTracks(p.tracks.map((track) => (track.id === id ? { ...track, ...next } : track)));
@@ -418,8 +443,10 @@ export function ShowPanel(p: Props) {
               {track.name}
             </span>
           )}
+          {/* Always empty, so picking the same file again adds another clip of it and no item
+              carries a check mark; the last pick is only shown as the placeholder text. */}
           <Select
-            value={chosen ?? ""}
+            value=""
             onValueChange={(id) => {
               setChosenSources((current) => ({ ...current, [track.id]: id }));
               addClip(track, id);
@@ -429,7 +456,12 @@ export function ShowPanel(p: Props) {
               className="h-7 min-w-32 flex-1 bg-background/60"
               title={items.find((item) => item.id === chosen)?.name}
             >
-              <SelectValue placeholder={items.length ? "Choose clip" : "No available clips"} />
+              <SelectValue
+                placeholder={
+                  items.find((item) => item.id === chosen)?.name ??
+                  (items.length ? "Choose clip" : "No available clips")
+                }
+              />
             </SelectTrigger>
             <SelectContent className="max-w-[min(32rem,calc(100vw-2rem))]">
               {items.map((item) => (
@@ -649,11 +681,16 @@ export function ShowPanel(p: Props) {
                       return (
                         <div
                           key={clip.id}
-                          title="Click to select, drag to move, drag an edge to trim, right-click to delete"
+                          title="Click to select, double-click to duplicate, drag to move, drag an edge to trim, right-click to delete"
                           onPointerDown={dragClip(clip)}
                           onClick={(event) => {
                             event.stopPropagation();
                             p.onSelectClip(clip.id);
+                          }}
+                          onDoubleClick={(event) => {
+                            // the lane behind would add a fresh clip of the first file instead
+                            event.stopPropagation();
+                            duplicateClip(clip);
                           }}
                           onContextMenu={(event) => {
                             event.preventDefault();
@@ -811,12 +848,8 @@ export function ShowPanel(p: Props) {
                   size="icon"
                   variant="ghost"
                   aria-label="Duplicate clip"
-                  onClick={() =>
-                    p.onClips([
-                      ...p.clips,
-                      { ...clip, id: `clip${Date.now()}`, start: clip.start + clip.duration },
-                    ])
-                  }
+                  title="Duplicate clip (or double-click it)"
+                  onClick={() => duplicateClip(clip)}
                 >
                   <Copy />
                 </Button>
@@ -865,8 +898,12 @@ export function ShowPanel(p: Props) {
               path={path}
               clip={clip}
               time={p.time}
+              playing={p.playing}
               peaks={clipPeaks(clip)}
               onPatchPath={p.onPatchPath}
+              onPlay={p.onPlay}
+              onPause={p.onPause}
+              onSeek={p.onSeek}
               onClose={() => setBigLaneClipId(null)}
             />
           );

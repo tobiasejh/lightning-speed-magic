@@ -73,9 +73,40 @@ const lerp = (a: Vec3, b: Vec3, t: number): Vec3 => ({
   z: a.z + (b.z - a.z) * t,
 });
 
+/**
+ * Puts the lines in point-number order (a point's number is its place in `nodes`), so the
+ * movement always runs from the lowest number to the highest, whatever order they were drawn.
+ */
+const inNumberOrder = (path: SoundPath): SoundPath => {
+  const index = new Map(path.nodes.map((node, i) => [node.id, i]));
+  const at = (id: string) => index.get(id) ?? Infinity;
+  return {
+    ...path,
+    segments: [...(path.segments ?? [])].sort(
+      (a, b) => at(a.fromId) - at(b.fromId) || at(a.toId) - at(b.toId),
+    ),
+  };
+};
+
+/**
+ * Numbers the points in the order the sound passes them. Older builds gave a point added by
+ * splitting a line the highest number, even though it sits in the middle of the movement.
+ */
+const numberAlongMovement = (path: SoundPath): SoundPath => {
+  const segments = path.segments ?? [];
+  // only a single unbroken line can be renumbered without changing where the sound goes
+  if (segments.some((segment, i) => i > 0 && segment.fromId !== segments[i - 1]!.toId)) return path;
+  const order = [...new Set(pathChain(path).map((entry) => entry.nodeId))];
+  const nodes = [
+    ...order.map((id) => path.nodes.find((node) => node.id === id)),
+    ...path.nodes.filter((node) => !order.includes(node.id)),
+  ].filter((node): node is PathNode => !!node);
+  return nodes.length === path.nodes.length ? { ...path, nodes } : path;
+};
+
 /** Converts legacy drawn/recorded sample lists into editable nodes + segments. */
 export const upgradePath = (path: SoundPath): SoundPath => {
-  if (path.nodes?.length) return { ...path, duration: pathDuration(path) };
+  if (path.nodes?.length) return withDuration(numberAlongMovement(path));
   const samples = path.points ?? [];
   const keep = samples.filter(
     (_, index) => index === 0 || index === samples.length - 1 || index % 4 === 0,
@@ -218,7 +249,10 @@ export const splitSegment = (path: SoundPath, segmentId: string, t: number): Sou
   const index = (path.segments ?? []).findIndex((item) => item.id === segmentId);
   const segments = [...path.segments];
   segments.splice(index, 1, first, second);
-  return withDuration({ ...path, nodes: [...path.nodes, node], segments });
+  // the new point takes the number right after the line's start, so numbers follow the movement
+  const nodes = [...path.nodes];
+  nodes.splice(nodes.findIndex((item) => item.id === segment.fromId) + 1, 0, node);
+  return withDuration({ ...path, nodes, segments });
 };
 
 export const addPathNode = (
@@ -236,18 +270,83 @@ export const addPathNode = (
   return withDuration({ ...path, nodes: [...path.nodes, node], segments });
 };
 
-export const connectNodes = (
+/**
+ * Adds a point to a movement lane at `time` seconds, with `value` on that axis. Inside the
+ * path it splits the line it lands on, past the end it extends the path.
+ */
+export const insertPathPoint = (
   path: SoundPath,
-  fromId: string,
-  toId: string,
-  durationMs = 1000,
+  axis: "x" | "y",
+  time: number,
+  value: number,
 ): SoundPath => {
-  if (fromId === toId) return path;
-  if ((path.segments ?? []).some((s) => s.fromId === fromId && s.toId === toId)) return path;
+  const chain = pathChain(path);
+  const last = chain[chain.length - 1];
+  const lastNode = last ? nodeById(path, last.nodeId) : null;
+  if (!last || !lastNode) return addPathNode(path, { x: 0, y: 0, z: 0, [axis]: value }, false);
+  if (time >= last.time)
+    return addPathNode(
+      path,
+      { ...lastNode.position, [axis]: value },
+      true,
+      Math.max(0, Math.round((time - last.time) * 1000)),
+    );
+  const index = chain.findIndex((_, i) => time < (chain[i + 1]?.time ?? Infinity));
+  const segment = path.segments[index];
+  const from = chain[index];
+  const to = chain[index + 1];
+  if (!segment || !from || !to || to.time <= from.time) return path;
+  const split = splitSegment(path, segment.id, (time - from.time) / (to.time - from.time));
+  const node = split.nodes.find((item) => !path.nodes.some((old) => old.id === item.id));
+  return node ? moveNode(split, node.id, { ...node.position, [axis]: value }) : split;
+};
+
+/**
+ * Deletes a point from a movement lane. A point in the middle joins its two lines into one,
+ * so the path keeps its length and stays one unbroken movement.
+ */
+export const removePathPoint = (path: SoundPath, nodeId: string): SoundPath => {
+  const segments = path.segments ?? [];
+  const into = segments.findIndex((segment) => segment.toId === nodeId);
+  const out = segments.findIndex((segment) => segment.fromId === nodeId);
+  const before = segments[into];
+  const after = segments[out];
+  if (!before || !after || out !== into + 1) return removeNode(path, nodeId);
+  const joined: PathSegment = {
+    id: uid("s"),
+    fromId: before.fromId,
+    toId: after.toId,
+    durationMs: before.durationMs + after.durationMs,
+    curve: 0,
+  };
   return withDuration({
     ...path,
-    segments: [...(path.segments ?? []), { id: uid("s"), fromId, toId, durationMs, curve: 0 }],
+    nodes: path.nodes.filter((node) => node.id !== nodeId),
+    segments: [...segments.slice(0, into), joined, ...segments.slice(out + 1)],
   });
+};
+
+/**
+ * Links two points with a line. The line always runs from the lower point number to the
+ * higher one, whichever was clicked first, and takes its place in number order.
+ */
+export const connectNodes = (
+  path: SoundPath,
+  firstId: string,
+  secondId: string,
+  durationMs = 1000,
+): SoundPath => {
+  if (firstId === secondId) return path;
+  const number = (id: string) => path.nodes.findIndex((node) => node.id === id);
+  const [fromId, toId] =
+    number(firstId) <= number(secondId) ? [firstId, secondId] : [secondId, firstId];
+  if ((path.segments ?? []).some((s) => s.fromId === fromId && s.toId === toId)) return path;
+  return withDuration(
+    inNumberOrder({
+      ...path,
+      segments: [...(path.segments ?? []), { id: uid("s"), fromId, toId, durationMs, curve: 0 }],
+    }),
+  );
 };
 
 export const removeNode = (path: SoundPath, nodeId: string): SoundPath =>

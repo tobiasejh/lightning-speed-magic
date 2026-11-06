@@ -12,6 +12,7 @@ import { silentLevels, type AudioLevelProvider } from "@/lib/audio";
 import { stowVideo } from "@/lib/media-playback";
 import { drawPattern } from "@/lib/patterns";
 import {
+  BLANK_SOURCE,
   mediaElements,
   mediaMeta,
   type Globals,
@@ -212,6 +213,10 @@ function SurfaceLayerImpl({
         const key = imageDrawKey(s, w, h, audio.bass);
         if (key === drawnKey) return;
         drawnKey = key;
+      } else if (s.source === BLANK_SOURCE) {
+        const key = `${BLANK_SOURCE}|${w}|${h}`;
+        if (key === drawnKey) return;
+        drawnKey = key;
       } else {
         drawnKey = "";
       }
@@ -258,6 +263,9 @@ function SurfaceLayerImpl({
             }
           }
         }
+      } else if (s.source === BLANK_SOURCE) {
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0, 0, cw, chh);
       } else {
         visualById(s.source.slice(7)).draw({
           ctx,

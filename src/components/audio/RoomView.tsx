@@ -11,7 +11,7 @@ import {
   emptyPath,
   moveNode,
   patchSegment,
-  removeNode,
+  removePathPoint,
   removeSegment,
   segmentEnds,
   splitSegment,
@@ -169,7 +169,11 @@ export function RoomView(p: Props) {
       const target = e.currentTarget;
       const parent = rootRect(target);
       target.setPointerCapture(e.pointerId);
-      const move = (ev: PointerEvent) => cb(toPoint(ev.clientX, ev.clientY, parent));
+      // top-down view: only x/y move; callers keep the dragged item's own height (z)
+      const move = (ev: PointerEvent) => {
+        const { x, y } = toPoint(ev.clientX, ev.clientY, parent);
+        cb({ x, y });
+      };
       const up = () => {
         target.removeEventListener("pointermove", move);
         target.removeEventListener("pointerup", up);
@@ -372,7 +376,8 @@ export function RoomView(p: Props) {
                   onPointerDown={dragNode(node.id)}
                   onContextMenu={(event) => {
                     event.preventDefault();
-                    p.onSavePath(withDuration(removeNode(path, node.id)));
+                    // joins the lines on either side, so the movement stays one unbroken line
+                    p.onSavePath(removePathPoint(path, node.id));
                   }}
                 >
                   <title>Drag to move; Ctrl-click to connect; right-click to delete</title>
