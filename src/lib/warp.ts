@@ -161,10 +161,8 @@ const uvToStage = (corners: Pt[], u: number, v: number): Pt => {
   return m ? applyH(m, u, v) : { x: u, y: v };
 };
 
-/** Stage position back to content (u,v). */
-export const stageToUv = (corners: Pt[], p: Pt): { u: number; v: number } => {
-  const m = homography(corners);
-  if (!m) return { u: p.x, v: p.y };
+/** Inverse of a 3x3 homography, or null when the quad it came from has no area. */
+const invertH = (m: number[]): number[] | null => {
   const [a, b, c, d, e, f, g, h, i] = m as [
     number,
     number,
@@ -187,7 +185,25 @@ export const stageToUv = (corners: Pt[], p: Pt): { u: number; v: number } => {
     b * g - a * h,
     a * e - b * d,
   ];
-  const r = applyH(inv, p.x, p.y);
+  const det = a * inv[0]! + b * inv[3]! + c * inv[6]!;
+  return Math.abs(det) < 1e-12 ? null : inv;
+};
+
+/**
+ * Maps a point back through the corner warp onto the unit square. Unlike `stageToUv` the
+ * result is not clamped, so the caller can tell that a point lies outside the quad.
+ */
+export const quadToUnit = (corners: Pt[]): ((p: Pt) => Pt) | null => {
+  const m = homography(corners);
+  const inv = m && invertH(m);
+  return inv ? (p) => applyH(inv, p.x, p.y) : null;
+};
+
+/** Stage position back to content (u,v). */
+export const stageToUv = (corners: Pt[], p: Pt): { u: number; v: number } => {
+  const unit = quadToUnit(corners);
+  if (!unit) return { u: p.x, v: p.y };
+  const r = unit(p);
   return { u: clamp01(r.x), v: clamp01(r.y) };
 };
 
