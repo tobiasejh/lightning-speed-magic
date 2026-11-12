@@ -27,6 +27,7 @@ import {
   Scissors,
   Spline,
   Trash2,
+  TriangleAlert,
   Upload,
   Video,
   type LucideIcon,
@@ -627,6 +628,7 @@ export function Studio() {
   // Movement the camera sees is a live reading, like the microphone level: it never goes
   // into the show, the undo history or a save.
   const tracking = useCameraTracking(camera, outputs, surfaces);
+  const { start: startCamera } = tracking;
   const patchCamera = useCallback(
     (patch: Partial<CameraConfig>) => setCamera((current) => ({ ...current, ...patch })),
     [],
@@ -797,8 +799,11 @@ export function Studio() {
       setSurfaces(project.surfaces.map(upgradeSurface));
       setSelectedId(project.surfaces[0]?.id ?? null);
       setOutputs(project.outputs?.length ? project.outputs.map(upgradeOutput) : defaultOutputs());
-      setCamera(upgradeCamera(project.camera));
+      const nextCamera = upgradeCamera(project.camera);
+      setCamera(nextCamera);
       setCalibrating(false);
+      // a missing camera is reported in the Camera section; the show opens either way
+      if (nextCamera.autoStart) void startCamera(nextCamera);
       setScenes(project.scenes ?? []);
       setCues(project.timeline ?? []);
       setTimelineTracks(
@@ -851,7 +856,7 @@ export function Studio() {
       localStorage.setItem(LAST_KEY, project.id);
       if (channelRef.current) sendMedia(channelRef.current, items);
     },
-    [engine, setShowTimeNow],
+    [engine, setShowTimeNow, startCamera],
   );
 
   useEffect(() => {
@@ -2155,6 +2160,17 @@ export function Studio() {
           icon={Video}
           contentClassName="space-y-3"
           highlighted={view === "stage"}
+          // visible with the section closed, since a show can open with its camera missing
+          action={
+            tracking.missing !== null || tracking.error ? (
+              <span
+                className="grid size-7 place-items-center text-destructive"
+                title="The camera did not start. Open this section for details."
+              >
+                <TriangleAlert className="size-4" />
+              </span>
+            ) : undefined
+          }
         >
           <CameraPanel
             tracking={tracking}
@@ -3380,7 +3396,12 @@ export function Studio() {
               camera={camera}
               outputs={outputs}
               onSave={(corners) => {
-                patchCamera({ corners });
+                // the calibration belongs to this camera, so the show asks for it next time
+                patchCamera({
+                  corners,
+                  deviceId: tracking.deviceId,
+                  deviceLabel: tracking.deviceLabel,
+                });
                 setCalibrating(false);
               }}
               onCancel={() => setCalibrating(false)}

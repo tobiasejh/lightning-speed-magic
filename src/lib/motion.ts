@@ -48,20 +48,13 @@ export class MotionSensor {
     return !!this.stream;
   }
 
+  /** Opens exactly this camera, or the system default without an id. */
   async start(deviceId?: string) {
     if (this.stream) return;
     const size = { width: { ideal: 640 }, height: { ideal: 480 } };
-    let stream: MediaStream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: deviceId ? { ...size, deviceId: { exact: deviceId } } : size,
-      });
-    } catch (error) {
-      // a show saved on another computer names a camera this one does not have
-      if (!deviceId || !(error instanceof DOMException) || error.name !== "OverconstrainedError")
-        throw error;
-      stream = await navigator.mediaDevices.getUserMedia({ video: size });
-    }
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: deviceId ? { ...size, deviceId: { exact: deviceId } } : size,
+    });
     const video = document.createElement("video");
     video.muted = true;
     video.playsInline = true;
@@ -76,9 +69,13 @@ export class MotionSensor {
     this.primed = false;
   }
 
-  /** The id of the camera actually in use, which may differ from the one asked for. */
+  /** The camera actually in use. */
   get deviceId() {
     return this.stream?.getVideoTracks()[0]?.getSettings().deviceId;
+  }
+
+  get deviceLabel() {
+    return this.stream?.getVideoTracks()[0]?.label || undefined;
   }
 
   /**
@@ -153,6 +150,26 @@ export class MotionSensor {
     this.cells.fill(0);
   }
 }
+
+type CameraDevice = { deviceId: string; label: string };
+
+/**
+ * Which camera to open for a show: the one it was calibrated with, found by id or, when the
+ * id changed (another USB port, a reinstall), by name. `missing` when it is not plugged in.
+ * null when the list cannot tell: before camera access is granted, browsers hide the ids.
+ */
+export const resolveCamera = (
+  devices: CameraDevice[],
+  wanted: { deviceId?: string | undefined; deviceLabel?: string | undefined },
+): { deviceId: string | undefined } | { missing: true } | null => {
+  if (!wanted.deviceId && !wanted.deviceLabel) return { deviceId: undefined };
+  const known = devices.filter((device) => device.deviceId);
+  if (!known.length) return null;
+  const match =
+    known.find((device) => device.deviceId === wanted.deviceId) ??
+    (wanted.deviceLabel ? known.find((device) => device.label === wanted.deviceLabel) : undefined);
+  return match ? { deviceId: match.deviceId } : { missing: true };
+};
 
 /**
  * Camera image position (0..1) to the shared show canvas (0..1, the space of

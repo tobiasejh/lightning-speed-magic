@@ -310,8 +310,12 @@ export const upgradeReverb = (
 
 /** The camera that watches the projection, and where the projected picture sits in its image. */
 export type CameraConfig = {
-  /** preferred camera; the system default is used when it is not plugged in */
+  /** the camera the calibration was made with; the system default until one is calibrated */
   deviceId?: string | undefined;
+  /** its name, to find it again if its id changes and to say which camera is missing */
+  deviceLabel?: string | undefined;
+  /** turn the camera on as soon as the show is opened (for installations that run unattended) */
+  autoStart: boolean;
   /** the projector whose picture the camera looks at */
   outputId: string;
   /**
@@ -324,6 +328,7 @@ export type CameraConfig = {
 };
 
 export const defaultCamera = (): CameraConfig => ({
+  autoStart: false,
   outputId: "out1",
   corners: null,
   sensitivity: 0.5,
@@ -336,6 +341,8 @@ export const upgradeCamera = (camera?: Partial<CameraConfig> | undefined): Camer
   return {
     ...defaults,
     ...camera,
+    // only an explicit choice starts a camera on its own
+    autoStart: camera?.autoStart === true,
     corners: Array.isArray(corners) && corners.length === 4 ? clampCorners(corners) : null,
     sensitivity: Math.max(0, Math.min(1, camera?.sensitivity ?? defaults.sensitivity)),
   };
