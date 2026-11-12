@@ -28,6 +28,7 @@ import {
   Spline,
   Trash2,
   Upload,
+  Video,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -71,8 +72,13 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LabeledRow } from "@/components/common/LabeledRow";
+import { CameraCalibration } from "@/components/sensing/CameraCalibration";
+import { CameraPanel } from "@/components/sensing/CameraPanel";
+import { MotionHighlights } from "@/components/sensing/MotionHighlights";
+import { useCameraTracking } from "@/components/sensing/useCameraTracking";
 import { supabase } from "@/integrations/supabase/client";
 import { MicAnalyser, silentLevels, type AudioLevelProvider } from "@/lib/audio";
+import { CALIBRATION_PATTERN, calibrationSurface } from "@/lib/motion";
 import { formatTime } from "@/lib/format";
 import {
   panStageTransform,
@@ -116,17 +122,20 @@ import {
   SOUND_COLORS,
   defaultGlobals,
   defaultBlend,
+  defaultCamera,
   defaultOutputs,
   defaultRegion,
   defaultRoom,
   defaultReverb,
   upgradeReverb,
+  upgradeCamera,
   splitOutputsEvenly,
   upgradeOutput,
   upgradeRoom,
   BLANK_SOURCE,
   mediaElements,
   mediaMeta,
+  type CameraConfig,
   type Globals,
   type MediaItem,
   type OutputScreen,
@@ -291,6 +300,8 @@ export function Studio() {
   const [testPattern, setTestPattern] = useState<TestPattern>("grid");
 
   const [outputs, setOutputs] = useState<OutputScreen[]>(defaultOutputs);
+  const [camera, setCamera] = useState<CameraConfig>(defaultCamera);
+  const [calibrating, setCalibrating] = useState(false);
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [cues, setCues] = useState<TimelineCue[]>([]);
   const [timelineTracks, setTimelineTracks] = useState<TimelineTrack[]>(defaultTimelineTracks);
@@ -613,6 +624,18 @@ export function Studio() {
     [surfaces, timelineSurfaceSources, timelineDrivesSurfaces],
   );
 
+  // Movement the camera sees is a live reading, like the microphone level: it never goes
+  // into the show, the undo history or a save.
+  const tracking = useCameraTracking(camera, outputs, surfaces);
+  const patchCamera = useCallback(
+    (patch: Partial<CameraConfig>) => setCamera((current) => ({ ...current, ...patch })),
+    [],
+  );
+  // without a picture there is nothing to put the points on
+  useEffect(() => {
+    if (!tracking.on) setCalibrating(false);
+  }, [tracking.on]);
+
   const surfaceVideoOwners = useMemo(() => videoOwners(displaySurfaces), [displaySurfaces]);
   const stageGlobals = useMemo(
     () =>
@@ -774,6 +797,8 @@ export function Studio() {
       setSurfaces(project.surfaces.map(upgradeSurface));
       setSelectedId(project.surfaces[0]?.id ?? null);
       setOutputs(project.outputs?.length ? project.outputs.map(upgradeOutput) : defaultOutputs());
+      setCamera(upgradeCamera(project.camera));
+      setCalibrating(false);
       setScenes(project.scenes ?? []);
       setCues(project.timeline ?? []);
       setTimelineTracks(
@@ -868,10 +893,12 @@ export function Studio() {
       timelineTracks,
       timelineClips,
       soundPaths,
+      camera,
       selectedClipId,
       activePathId,
     }),
     [
+      camera,
       selectedClipId,
       activePathId,
       projectId,
@@ -936,15 +963,21 @@ export function Studio() {
   };
 
   // ----- output windows -----
+  // While calibrating, the projector the camera looks at shows a test pattern over its whole
+  // picture. It is only put into what the projectors get, so the show itself stays untouched.
+  const calibrationLayer = useMemo(
+    () => (calibrating ? calibrationSurface(camera, outputs) : null),
+    [calibrating, camera, outputs],
+  );
   const snapshot = useMemo<OutputSnapshot>(
     () => ({
-      surfaces: displaySurfaces,
+      surfaces: calibrationLayer ? [calibrationLayer, ...displaySurfaces] : displaySurfaces,
       globals,
-      testPattern,
+      testPattern: calibrationLayer ? CALIBRATION_PATTERN : testPattern,
       media: media.map(({ url: _url, ...rest }) => rest),
       outputs,
     }),
-    [displaySurfaces, globals, testPattern, media, outputs],
+    [calibrationLayer, displaySurfaces, globals, testPattern, media, outputs],
   );
 
   function sendMedia(ch: BroadcastChannel, items: MediaItem[]) {
@@ -2116,6 +2149,26 @@ export function Studio() {
           </LabeledRow>
         </CollapsibleSection>
 
+        {/* Camera */}
+        <CollapsibleSection
+          title="Camera"
+          icon={Video}
+          contentClassName="space-y-3"
+          highlighted={view === "stage"}
+        >
+          <CameraPanel
+            tracking={tracking}
+            camera={camera}
+            onCamera={patchCamera}
+            outputs={outputs}
+            surfaces={surfaces}
+            onCalibrate={() => {
+              setView("stage");
+              setCalibrating(true);
+            }}
+          />
+        </CollapsibleSection>
+
         {/* Look */}
         <CollapsibleSection
           title="Look"
@@ -3061,6 +3114,9 @@ export function Studio() {
                 Show mode: the preview is off. Projector windows keep running.
               </p>
             )}
+            {view === "stage" && !fullscreen && (
+              <MotionHighlights surfaces={surfaces} activeIds={tracking.activeIds} stage={stage} />
+            )}
             {dropTarget && view === "stage" && (
               <div className="pointer-events-none absolute inset-0 z-40">
                 <svg className="absolute inset-0 size-full">
@@ -3318,6 +3374,18 @@ export function Studio() {
               </>
             )}
           </div>
+          {calibrating && view === "stage" && !fullscreen && (
+            <CameraCalibration
+              tracking={tracking}
+              camera={camera}
+              outputs={outputs}
+              onSave={(corners) => {
+                patchCamera({ corners });
+                setCalibrating(false);
+              }}
+              onCancel={() => setCalibrating(false)}
+            />
+          )}
         </div>
       </main>
     </div>
