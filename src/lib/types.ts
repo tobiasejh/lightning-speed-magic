@@ -1,4 +1,4 @@
-import type { OutlinePt, Pt } from "./warp";
+import { clampCorners, type OutlinePt, type Pt } from "./warp";
 
 /** Normalised crop rectangle (0..1) inside the source frame. */
 export type Crop = { x: number; y: number; w: number; h: number };
@@ -308,6 +308,39 @@ export const upgradeReverb = (
   return { ...defaults, ...(legacy ? presets[legacy] : undefined), ...(reverb ?? {}) };
 };
 
+/** The camera that watches the projection, and where the projected picture sits in its image. */
+export type CameraConfig = {
+  /** preferred camera; the system default is used when it is not plugged in */
+  deviceId?: string | undefined;
+  /** the projector whose picture the camera looks at */
+  outputId: string;
+  /**
+   * Corners of that projector's picture in the camera image (0..1), in warp order:
+   * top-left, top-right, bottom-right, bottom-left. null until calibrated.
+   */
+  corners: Pt[] | null;
+  /** 0..1: how small a change in the camera image counts as movement */
+  sensitivity: number;
+};
+
+export const defaultCamera = (): CameraConfig => ({
+  outputId: "out1",
+  corners: null,
+  sensitivity: 0.5,
+});
+
+/** Fill in fields shows saved before the camera existed lack. */
+export const upgradeCamera = (camera?: Partial<CameraConfig> | undefined): CameraConfig => {
+  const defaults = defaultCamera();
+  const corners = camera?.corners;
+  return {
+    ...defaults,
+    ...camera,
+    corners: Array.isArray(corners) && corners.length === 4 ? clampCorners(corners) : null,
+    sensitivity: Math.max(0, Math.min(1, camera?.sensitivity ?? defaults.sensitivity)),
+  };
+};
+
 export type Project = {
   version?: number;
   id: string;
@@ -326,6 +359,7 @@ export type Project = {
   timelineTracks?: TimelineTrack[];
   timelineClips?: TimelineClip[];
   soundPaths?: SoundPath[];
+  camera?: CameraConfig;
   /** which clip was selected in the timeline when the show was saved */
   selectedClipId?: string | null;
   activePathId?: string | null;
