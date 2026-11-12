@@ -31,18 +31,87 @@ export const defaultCameraCorners = (): Pt[] => [
 const cameraOutput = (camera: CameraConfig, outputs: OutputScreen[]) =>
   outputs.find((output) => output.id === camera.outputId) ?? outputs[0];
 
-/** Watches a camera and marks the grid cells where the picture is changing. */
-export class MotionSensor {
-  /** 1 for every grid cell with movement in the last analysed frame */
+/**
+ * Finds the cells of a GRID_W x GRID_H picture that differ from a slowly updated background.
+ * Kept apart from the camera so it can be fed any picture, such as in tests.
+ */
+export class MotionGrid {
+  /** 1 for every grid cell with movement in the last frame */
   readonly cells = new Uint8Array(GRID_W * GRID_H);
-  stream: MediaStream | null = null;
-
-  private video: HTMLVideoElement | null = null;
-  private ctx: CanvasRenderingContext2D | null = null;
   private background = new Float32Array(GRID_W * GRID_H);
   private raw = new Uint8Array(GRID_W * GRID_H);
   private primed = false;
+
+  /** The next frame becomes the background. */
+  reset() {
+    this.primed = false;
+    this.cells.fill(0);
+  }
+
+  /** `rgba` holds GRID_W x GRID_H pixels, four bytes each, as ImageData does. */
+  update(rgba: ArrayLike<number>, sensitivity: number) {
+    const { background, raw, cells } = this;
+    const count = GRID_W * GRID_H;
+
+    if (!this.primed) {
+      for (let i = 0; i < count; i++) {
+        background[i] = rgba[i * 4]! * 0.299 + rgba[i * 4 + 1]! * 0.587 + rgba[i * 4 + 2]! * 0.114;
+      }
+      this.primed = true;
+      cells.fill(0);
+      return;
+    }
+
+    // brightness steps of 0..255: 40 only reacts to strong changes, 6 to nearly everything
+    const threshold = 40 - 34 * Math.max(0, Math.min(1, sensitivity));
+    let changed = 0;
+    for (let i = 0; i < count; i++) {
+      const luma = rgba[i * 4]! * 0.299 + rgba[i * 4 + 1]! * 0.587 + rgba[i * 4 + 2]! * 0.114;
+      const moving = Math.abs(luma - background[i]!) > threshold;
+      raw[i] = moving ? 1 : 0;
+      if (moving) changed++;
+      // Still parts follow the light quickly. Moving parts are taken up slowly, so someone
+      // who stops in front of a surface fades into the background after a few seconds.
+      background[i] = background[i]! + (luma - background[i]!) * (moving ? 0.02 : 0.1);
+    }
+
+    // Most of the picture changing at once is the light (a new projected image, the camera
+    // adjusting its exposure), not a person. Take it as the new background.
+    if (changed > count * 0.6) {
+      this.reset();
+      return;
+    }
+
+    // a single cell on its own is camera noise
+    for (let y = 0; y < GRID_H; y++) {
+      for (let x = 0; x < GRID_W; x++) {
+        const i = y * GRID_W + x;
+        cells[i] =
+          raw[i] &&
+          ((x > 0 && raw[i - 1]) ||
+            (x < GRID_W - 1 && raw[i + 1]) ||
+            (y > 0 && raw[i - GRID_W]) ||
+            (y < GRID_H - 1 && raw[i + GRID_W]))
+            ? 1
+            : 0;
+      }
+    }
+  }
+}
+
+/** Watches a camera and marks the grid cells where the picture is changing. */
+export class MotionSensor {
+  stream: MediaStream | null = null;
+
+  private grid = new MotionGrid();
+  private video: HTMLVideoElement | null = null;
+  private ctx: CanvasRenderingContext2D | null = null;
   private sampledAt = 0;
+
+  /** 1 for every grid cell with movement in the last analysed frame */
+  get cells() {
+    return this.grid.cells;
+  }
 
   get active() {
     return !!this.stream;
@@ -66,7 +135,7 @@ export class MotionSensor {
     this.ctx = canvas.getContext("2d", { willReadFrequently: true });
     this.video = video;
     this.stream = stream;
-    this.primed = false;
+    this.grid.reset();
   }
 
   /** The camera actually in use. */
@@ -87,56 +156,8 @@ export class MotionSensor {
     if (!video || !ctx || video.readyState < 2) return false;
     if (now - this.sampledAt < MOTION_SAMPLE_MS) return false;
     this.sampledAt = now;
-
     ctx.drawImage(video, 0, 0, GRID_W, GRID_H);
-    const { data } = ctx.getImageData(0, 0, GRID_W, GRID_H);
-    const { background, raw, cells } = this;
-    const count = GRID_W * GRID_H;
-
-    if (!this.primed) {
-      for (let i = 0; i < count; i++) {
-        background[i] = data[i * 4]! * 0.299 + data[i * 4 + 1]! * 0.587 + data[i * 4 + 2]! * 0.114;
-      }
-      this.primed = true;
-      cells.fill(0);
-      return true;
-    }
-
-    // brightness steps of 0..255: 40 only reacts to strong changes, 6 to nearly everything
-    const threshold = 40 - 34 * Math.max(0, Math.min(1, sensitivity));
-    let changed = 0;
-    for (let i = 0; i < count; i++) {
-      const luma = data[i * 4]! * 0.299 + data[i * 4 + 1]! * 0.587 + data[i * 4 + 2]! * 0.114;
-      const moving = Math.abs(luma - background[i]!) > threshold;
-      raw[i] = moving ? 1 : 0;
-      if (moving) changed++;
-      // Still parts follow the light quickly. Moving parts are taken up slowly, so someone
-      // who stops in front of a surface fades into the background after a few seconds.
-      background[i] = background[i]! + (luma - background[i]!) * (moving ? 0.02 : 0.1);
-    }
-
-    // Most of the picture changing at once is the light (a new projected image, the camera
-    // adjusting its exposure), not a person. Take it as the new background.
-    if (changed > count * 0.6) {
-      this.primed = false;
-      cells.fill(0);
-      return true;
-    }
-
-    // a single cell on its own is camera noise
-    for (let y = 0; y < GRID_H; y++) {
-      for (let x = 0; x < GRID_W; x++) {
-        const i = y * GRID_W + x;
-        cells[i] =
-          raw[i] &&
-          ((x > 0 && raw[i - 1]) ||
-            (x < GRID_W - 1 && raw[i + 1]) ||
-            (y > 0 && raw[i - GRID_W]) ||
-            (y < GRID_H - 1 && raw[i + GRID_W]))
-            ? 1
-            : 0;
-      }
-    }
+    this.grid.update(ctx.getImageData(0, 0, GRID_W, GRID_H).data, sensitivity);
     return true;
   }
 
@@ -146,8 +167,7 @@ export class MotionSensor {
     this.video = null;
     this.ctx = null;
     this.stream = null;
-    this.primed = false;
-    this.cells.fill(0);
+    this.grid.reset();
   }
 }
 
